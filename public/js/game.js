@@ -803,7 +803,7 @@ export class FPSGame {
     s.on('player:left', (d) => { const r = this.remotes.get(d.nickname); if (r && !r.isBot) { this.scene.remove(r.mesh); this.remotes.delete(d.nickname); } this.feed(`◀ ${d.nickname} 퇴장`); });
 
     s.on('game:tick', (d) => { this.serverState = d.state; this.updateMatchInfo(); });
-    s.on('game:reset', (d) => { if (d) this.serverState = d.state; this.reviveLocal(); this.updateMatchInfo(); });
+    s.on('game:reset', (d) => { if (d) this.serverState = d.state; this.reviveLocal(); this.reviveBots(); this.updateMatchInfo(); });
     s.on('game:over', (d) => {
       this.serverState = d.state;
       const ov = document.getElementById('round-overlay');
@@ -817,10 +817,10 @@ export class FPSGame {
       this.feed(txt);
       if (d.winner === this.team) Sfx.win(); else if (d.winner && d.winner !== 'draw') Sfx.lose();
       // 매치 종료 후 부활+보급 (오버레이 갇힘 방지)
-      setTimeout(() => this.reviveLocal(), 2500);
+      setTimeout(() => { this.reviveLocal(); this.reviveBots(); }, 2500);
     });
     s.on('round:next', (d) => {
-      this.serverState = d.state; this.reviveLocal(); this.refillAmmo();
+      this.serverState = d.state; this.reviveLocal(); this.reviveBots(); this.refillAmmo();
       const ov = document.getElementById('round-overlay');
       ov.textContent = `― ROUND ${d.state.round} ―`; ov.classList.remove('hidden');
       setTimeout(() => ov.classList.add('hidden'), 2500);
@@ -1215,7 +1215,18 @@ export class FPSGame {
         this.firstBloodCheck(this.nick, name);
         this.onMyKill();
       }
-      setTimeout(() => { if (this.disposed) return; r.hp = 100; this.setRemoteAlive(r, true); this.drawNameplate(r.plate, name, r.team === this.team, 100); }, 3000);
+      // 폭파전: 그 라운드에선 부활 없음 / 그 외: 3초 후 부활
+      if (this.room.mode !== 'defuse') {
+        setTimeout(() => { if (this.disposed) return; r.hp = 100; this.setRemoteAlive(r, true); this.drawNameplate(r.plate, name, r.team === this.team, 100); }, 3000);
+      }
+    }
+  }
+  // 봇 전원 부활 (라운드/매치 전환 시)
+  reviveBots() {
+    for (const [name, r] of this.remotes) {
+      if (!r.isBot || r.alive) continue;
+      r.hp = 100; this.setRemoteAlive(r, true);
+      this.drawNameplate(r.plate, name, r.team === this.team, 100);
     }
   }
   onMyKill() {
