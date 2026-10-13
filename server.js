@@ -339,6 +339,7 @@ setInterval(() => {
 
 function nextRound(room) {
   if (!rooms.get(room.id)) return;
+  room._elimDone = false;
   if (room.state.round >= room.state.maxRounds) {
     const winner = room.state.score.CT === room.state.score.T ? 'draw' : (room.state.score.CT > room.state.score.T ? 'CT' : 'T');
     endMatch(room, winner, room.ranked ? '[경쟁] 전 라운드 종료' : '전 라운드 종료');
@@ -348,7 +349,36 @@ function nextRound(room) {
     room.state.phase = 'buy';
     room.state.roundTimer = 100;
   }
+  // 다음 라운드 전원 부활 (서버/클라 동기화)
+  for (const sid of room.order) {
+    const pl = players.get(sid);
+    if (pl) { pl.hp = 100; pl.alive = true; }
+  }
+  io.to('room_' + room.id).emit('room:players', roomPlayersById(room.id));
   io.to('room_' + room.id).emit('round:next', { state: room.state });
+}
+
+// 폭파전 전멸 승패 (한 팀 전멸 시 생존팀 득점 → 3초 후 다음 라운드)
+function checkDefuseElimination(room) {
+  if (!room || room.mode !== 'defuse' || room._elimDone) return;
+  const alive = { CT: 0, T: 0 };
+  for (const sid of room.order) {
+    const pl = players.get(sid);
+    if (pl && pl.alive) alive[pl.team] = (alive[pl.team] || 0) + 1;
+  }
+  if (alive.CT + alive.T === 0) {
+    room._elimDone = true;
+    io.to('room_' + room.id).emit('chat:msg', { sys: true, text: '💀 양 팀 전멸! 무승부, 다음 라운드' });
+    io.to('room_' + room.id).emit('round:end', { winner: 'draw', reason: '양 팀 전멸', state: room.state });
+    setTimeout(() => nextRound(room), 3000);
+  } else if (alive.CT === 0 || alive.T === 0) {
+    room._elimDone = true;
+    const winner = alive.CT === 0 ? 'T' : 'CT';
+    room.state.score[winner]++;
+    io.to('room_' + room.id).emit('chat:msg', { sys: true, text: `💀 ${winner} 팀 적 전멸 승리! (${room.state.score.CT}:${room.state.score.T})` });
+    io.to('room_' + room.id).emit('round:end', { winner, reason: '적 전멸', state: room.state });
+    setTimeout(() => nextRound(room), 3000);
+  }
 }
 
 // ---------- Socket ----------
@@ -450,6 +480,7 @@ io.on('connection', (socket) => {
     } else {
       io.to('room_' + room.id).emit('player:damaged', { target: targetEntry.nickname, hp: targetEntry.hp, attacker: shooter.nickname });
     }
+    checkDefuseElimination(room);
   }
 
   // 피격 판정 (슈터가 raycast 후 전송 → 서버가 HP 차감 후 브로드캐스트)
@@ -466,7 +497,18 @@ io.on('connection', (socket) => {
     strike(room, shooter, targetEntry, damage, weapon);
   });
 
-  // 수류탄 투척 중계 (타인 화면 투사체 표시용)
+  // 봇 공격 판정 (클라 봇이 원격 플레이어를 맞췄을 때, 킬러=BOT 이름)
+  socket.on('bot:hit', (d) => {
+    const { bot, target, damage } = d || {};
+    if (!bot || !target || !damage || damage > 60) return;
+    const reporter = players.get(socket.id);
+    if (!reporter || !reporter.roomId) return;
+    const room = rooms.get(reporter.roomId);
+    if (!room) return;
+    const targetEntry = [...players.values()].find(pl => pl.roomId === reporter.roomId && pl.nickname === target && pl.alive);
+    if (!targetEntry) return;
+    strike(room, { nickname: String(bot).slice(0, 16), team: null, kills: 0, deaths: 0, money: 800, userId: null }, targetEntry, Math.min(60, damage), 'BOT');
+  });
   socket.on('player:throw', (d) => {
     const p = players.get(socket.id);
     if (!p || !p.roomId || !p.alive || !d || !d.from || !d.vel) return;

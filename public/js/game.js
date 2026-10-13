@@ -691,7 +691,7 @@ export class FPSGame {
     for (const [name, r] of this.remotes) { // 봇 로컬 판정
       if (!r.alive || r.team === this.team || !r.isBot) continue;
       const d = r.mesh.position.distanceTo(pos);
-      if (d < 9) this.damageBot(name, r, Math.max(15, Math.round(110 * (1 - d / 10))), '수류탄💣');
+      if (d < 9) this.damageBot(name, r, Math.max(15, Math.round(110 * (1 - d / 10))), `${this.nick} [수류탄💣]`);
     }
     this.socket.emit('player:blast', { pos: { x: pos.x, y: pos.y, z: pos.z } });
     if (this.room.mode === 'operation') { // 목표물 추가 피해
@@ -735,7 +735,7 @@ export class FPSGame {
     s.off('room:players'); s.off('game:tick'); s.off('game:over');
     s.off('bomb:planted'); s.off('bomb:defused'); s.off('bomb:exploded');
     s.off('chat:msg'); s.off('player:respawned'); s.off('player:left'); s.off('round:next');
-    s.off('player:shot'); s.off('game:reset'); s.off('player:nade');
+    s.off('player:shot'); s.off('game:reset'); s.off('player:nade'); s.off('round:end');
 
     s.on('player:nade', (d) => {
       if (!d || !d.from || !d.vel || d.nickname === this.nick) return;
@@ -825,6 +825,13 @@ export class FPSGame {
       ov.textContent = `― ROUND ${d.state.round} ―`; ov.classList.remove('hidden');
       setTimeout(() => ov.classList.add('hidden'), 2500);
       this.updateMatchInfo();
+    });
+    s.on('round:end', (d) => { // 전멸 라운드 종료 예고 (3초 뒤 round:next)
+      const ov = document.getElementById('round-overlay');
+      ov.textContent = d.winner === 'draw' ? `💀 양 팀 전멸!` : `💀 ${d.winner} 승리! (${d.reason})`;
+      ov.classList.remove('hidden');
+      setTimeout(() => ov.classList.add('hidden'), 2800);
+      this.feed(ov.textContent);
     });
     s.on('bomb:planted', (d) => {
       this.serverState = d.state;
@@ -998,14 +1005,14 @@ export class FPSGame {
     r.legL.hip.rotation.x = sw; r.legR.hip.rotation.x = -sw;
     r.legL.knee.rotation.x = moving ? Math.max(0, -Math.sin(r.phase)) * 1.0 + 0.06 : 0.08;
     r.legR.knee.rotation.x = moving ? Math.max(0, Math.sin(r.phase)) * 1.0 + 0.06 : 0.08;
-    // 팔: 기본 조준자세(전방) + 걷기 흔들림 + 호흡
+    // 팔: 기본 조준자세(전방) + 걷기 흔들림 + 호흡 (+X 회전이 전방)
     const breathe = Math.sin(time * 2 + r.phase) * 0.03;
-    r.armL.sh.rotation.x = -1.0 - sw * 0.35 + breathe;
-    r.armR.sh.rotation.x = -1.0 + sw * 0.35 + breathe;
+    r.armL.sh.rotation.x = 1.0 + sw * 0.35 + breathe;
+    r.armR.sh.rotation.x = 1.0 - sw * 0.35 + breathe;
     r.armL.sh.rotation.z = 0.25; r.armR.sh.rotation.z = -0.15;
-    r.armL.el.rotation.x = -0.45; r.armR.el.rotation.x = -0.35;
+    r.armL.el.rotation.x = -0.5; r.armR.el.rotation.x = -0.4;
     // 몸통: 전진 기울기 + 보행 상하 + 호흡
-    r.torsoG.rotation.x = moving ? 0.09 : 0.02 + breathe * 0.4;
+    r.torsoG.rotation.x = moving ? -0.09 : -0.02 + breathe * 0.4;
     r.torsoG.position.y = 1.05 + (moving ? Math.abs(Math.cos(r.phase)) * 0.045 : breathe * 0.5);
     // 머리: 진행방향 응시
     r.headG.rotation.y *= 0.9;
@@ -1052,32 +1059,67 @@ export class FPSGame {
         r.botTimer = 2 + Math.random() * 4;
         r.targetPos = new THREE.Vector3((Math.random() - 0.5) * 100, 0, (Math.random() - 0.5) * 100);
       }
-      const dir = r.targetPos.clone().sub(r.mesh.position); dir.y = 0;
-      if (dir.length() > 1) {
-        dir.normalize();
-        // 벽 뚫기 방지 (플레이어와 동일 충돌)
-        const step = dir.clone().multiplyScalar(dt * 4);
-        const nx = r.mesh.position.clone(); nx.x += step.x;
-        const probe = new THREE.Vector3(nx.x, 0, nx.z);
-        if (!this.collide(probe)) r.mesh.position.x = nx.x;
-        const nz = r.mesh.position.clone(); nz.z += step.z;
-        const probe2 = new THREE.Vector3(r.mesh.position.x, 0, nz.z);
-        if (!this.collide(probe2)) r.mesh.position.z = nz.z;
-        r.yaw = Math.atan2(-dir.x, -dir.z);
+      // 표적 탐색 (0.5초마다): 가장 가까운 적 (봇·원격·나)
+      r.lockCd = (r.lockCd || 0) - dt;
+      if (r.lockCd <= 0) {
+        r.lockCd = 0.5 + Math.random() * 0.3;
+        let foe = null, foeD = 45;
+        for (const [on, or] of this.remotes) {
+          if (on === name || !or.alive || or.team === r.team) continue;
+          const d = or.mesh.position.distanceTo(r.mesh.position);
+          if (d < foeD) { foeD = d; foe = { kind: or.isBot ? 'bot' : 'remote', name: on, ref: or }; }
+        }
+        if (this.alive && r.team !== this.team) {
+          const d = this.pos.distanceTo(r.mesh.position);
+          if (d < foeD) foe = { kind: 'me', name: this.nick };
+        }
+        r.foe = foe;
+      }
+      const foe = r.foe && (r.foe.kind !== 'me' ? this.remotes.get(r.foe.name) || null : 'me');
+      const foeAlive = foe === 'me' ? (this.alive && r.team !== this.team) : (foe && foe.alive && foe.team !== r.team);
+      if (!foeAlive) r.foe = null;
+      // 이동: 적이 14m 밖이면 접근, 안이면 제자리 교전
+      let moveT = r.targetPos;
+      if (r.foe) {
+        const fp = foe === 'me' ? this.pos : foe.mesh.position;
+        const d = fp.distanceTo(r.mesh.position);
+        const fx = fp.x - r.mesh.position.x, fz = fp.z - r.mesh.position.z;
+        r.yaw = Math.atan2(-fx, -fz); // 적 응시
+        if (d > 14) moveT = new THREE.Vector3(fp.x, 0, fp.z);
+        else moveT = null;
+      }
+      if (moveT) {
+        const dir = moveT.clone().sub(r.mesh.position); dir.y = 0;
+        if (dir.length() > 1) {
+          dir.normalize();
+          const step = dir.clone().multiplyScalar(dt * 4);
+          const nx = r.mesh.position.clone(); nx.x += step.x;
+          if (!this.collide(new THREE.Vector3(nx.x, 0, nx.z))) r.mesh.position.x = nx.x;
+          const nz = r.mesh.position.clone(); nz.z += step.z;
+          if (!this.collide(new THREE.Vector3(r.mesh.position.x, 0, nz.z))) r.mesh.position.z = nz.z;
+          if (!r.foe) r.yaw = Math.atan2(-dir.x, -dir.z);
+        }
       }
       r.mesh.rotation.y = r.yaw;
-      // 봇이 나를 쏨
-      if (r.team !== this.team && this.alive) {
-        const dist = r.mesh.position.distanceTo(this.pos);
-        r.shootCd -= dt;
-        if (dist < 40 && r.shootCd <= 0) {
-          r.shootCd = 1.5 + Math.random() * 2;
+      // 사격
+      r.shootCd -= dt;
+      if (r.foe && foeAlive && r.shootCd <= 0) {
+        const fp = foe === 'me' ? this.pos : foe.mesh.position;
+        const dist = fp.distanceTo(r.mesh.position);
+        if (dist < 45) {
+          r.shootCd = 1.2 + Math.random() * 1.6;
           r.flashT = 0.12; // 발사 모션/섬광
-          // 명중률 거리 비례
           if (Math.random() < Math.max(0.1, 0.5 - dist / 100)) {
-            this.hp -= 8 + Math.random() * 10;
-            this.flashDamage(); this.updateHUD();
-            if (this.hp <= 0) { this.hp = 0; this.onDeath(true, { nickname: name, weapon: 'BOT 소총' }); this.feed(`☠ ${name} → ${this.nick}`); this.deaths++; }
+            const dmg = 8 + Math.random() * 10;
+            if (foe === 'me') {
+              this.hp -= dmg;
+              this.flashDamage(); this.updateHUD();
+              if (this.hp <= 0) { this.hp = 0; this.onDeath(true, { nickname: name, weapon: 'BOT 소총' }); this.feed(`☠ ${name} → ${this.nick}`); this.deaths++; }
+            } else if (r.foe.kind === 'bot') {
+              this.damageBot(r.foe.name, foe, dmg, name, false, false);
+            } else {
+              this.socket.emit('bot:hit', { bot: name, target: r.foe.name, damage: Math.round(dmg) });
+            }
           }
         }
       }
@@ -1144,7 +1186,7 @@ export class FPSGame {
       this.spawnTracer(origin, impact); this.spawnSparks(impact, 0xcc2222, 7);
       const r = this.remotes.get(best);
       if (r.isBot) { // 봇 데미지 로컬 처리
-        this.damageBot(best, r, w.dmg * dmgMul, w.id, bestHead);
+        this.damageBot(best, r, w.dmg * dmgMul, `${this.nick} [${w.id}]`, bestHead);
       } else {
         this.socket.emit('player:hit', { target: best, damage: w.dmg * dmgMul, weapon: bestHead ? w.id + '(헤드샷)' : w.id });
       }
@@ -1159,18 +1201,20 @@ export class FPSGame {
     this.updateHUD();
   }
 
-  // 봇 피해 공용 (총탄·수류탄)
-  damageBot(name, r, dmg, label, headshot = false) {
+  // 봇 피해 공용 (총탄·수류탄·봇간교전)
+  damageBot(name, r, dmg, label, headshot = false, creditMe = true) {
     if (!r.alive) return;
     r.hp -= dmg;
     r.flashT = 0;
     this.drawNameplate(r.plate, name, r.team === this.team, Math.max(0, r.hp));
     if (r.hp <= 0) {
       this.setRemoteAlive(r, false);
-      this.kills++; this.money += 300;
-      this.feed(`☠ ${this.nick} [${label}] → ${name}`); Sfx.kill();
-      this.firstBloodCheck(this.nick, name);
-      this.onMyKill();
+      this.feed(`☠ ${label} → ${name}`);
+      if (creditMe) {
+        this.kills++; this.money += 300; Sfx.kill();
+        this.firstBloodCheck(this.nick, name);
+        this.onMyKill();
+      }
       setTimeout(() => { if (this.disposed) return; r.hp = 100; this.setRemoteAlive(r, true); this.drawNameplate(r.plate, name, r.team === this.team, 100); }, 3000);
     }
   }
