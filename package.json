@@ -1,0 +1,16 @@
+{
+  "name": "online-fps-complete",
+  "version": "1.0.0",
+  "description": "웹 온라인 3D FPS 완전판 - 배틀필드/델타포스/카스 기반 (회원가입,로그인,방파기+멀티플레이)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5",
+    "bcryptjs": "^2.4.3",
+    "uuid": "^9.0.1"
+  }
+}
