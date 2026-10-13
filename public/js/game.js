@@ -915,7 +915,7 @@ export class FPSGame {
       hip.add(B(0.15, 0.42, 0.16, uniM, 0, -0.21, 0));
       const knee = new THREE.Group(); knee.position.set(0, -0.42, 0); hip.add(knee);
       knee.add(B(0.13, 0.38, 0.14, uniM, 0, -0.19, 0));
-      knee.add(B(0.14, 0.1, 0.26, bootM, 0, -0.42, 0.05)); // 군화
+      knee.add(B(0.14, 0.1, 0.26, bootM, 0, -0.42, -0.05)); // 군화 (앞코가 전방)
       return { hip, knee };
     };
     const legL = mkLeg(-1), legR = mkLeg(1);
@@ -1001,10 +1001,10 @@ export class FPSGame {
     const moving = r.speed > 0.8;
     if (moving) r.phase += dt * (4 + r.speed * 1.1);
     const sw = moving ? Math.sin(r.phase) * Math.min(0.7, 0.3 + r.speed * 0.06) : 0;
-    // 다리: 교대 스윙 + 무릎 굽힘
+    // 다리: 교대 스윙 + 무릎 굽힘 (무릎은 뒤꿈치 쪽(-X 회전)으로만 굽힘)
     r.legL.hip.rotation.x = sw; r.legR.hip.rotation.x = -sw;
-    r.legL.knee.rotation.x = moving ? Math.max(0, -Math.sin(r.phase)) * 1.0 + 0.06 : 0.08;
-    r.legR.knee.rotation.x = moving ? Math.max(0, Math.sin(r.phase)) * 1.0 + 0.06 : 0.08;
+    r.legL.knee.rotation.x = moving ? -(Math.max(0, -Math.sin(r.phase)) * 1.0) - 0.05 : -0.05;
+    r.legR.knee.rotation.x = moving ? -(Math.max(0, Math.sin(r.phase)) * 1.0) - 0.05 : -0.05;
     // 팔: 기본 조준자세(전방) + 걷기 흔들림 + 호흡 (+X 회전이 전방)
     const breathe = Math.sin(time * 2 + r.phase) * 0.03;
     r.armL.sh.rotation.x = 1.0 + sw * 0.35 + breathe;
