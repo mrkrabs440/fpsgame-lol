@@ -16,46 +16,86 @@ const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
-
-function loadUsers() {
-  try {
-    const arr = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-    let dirty = false;
-    for (const u of arr) { if (ensureStats(u)) dirty = true; }
-    if (dirty) fs.writeFileSync(USERS_FILE, JSON.stringify(arr, null, 2));
-    return arr;
-  }
-  catch { return []; }
-}
-function saveUsers(u) { fs.writeFileSync(USERS_FILE, JSON.stringify(u, null, 2)); }
-
-// 재시작 초기화 방지: 세션·방 파일 영속화
 const SESS_FILE = path.join(DATA_DIR, 'sessions.json');
 const ROOMS_FILE = path.join(DATA_DIR, 'rooms.json');
-function loadSessions() {
-  try {
-    const o = JSON.parse(fs.readFileSync(SESS_FILE, 'utf8'));
-    for (const [k, v] of Object.entries(o)) sessions.set(k, v);
-  } catch {}
+
+// 영속 저장소: 기본 파일, DATABASE_URL이 있으면 무료 Postgres(Supabase/Neon 등)로 자동 전환
+// → Render 무료(디스크 휘발)에서도 계정·세션·방이 재시작 후 유지됨
+const usePgEnv = !!process.env.DATABASE_URL;
+let pgPool = null, pgOk = false;
+let userCache = null, sessCacheObj = null, roomsCacheArr = null;
+const storeDirty = { users: false, sessions: false, rooms: false };
+function readJson(f, fb) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return fb; } }
+function writeJson(f, v) { try { fs.writeFileSync(f, JSON.stringify(v, null, 2)); } catch {} }
+function pgGet() {
+  if (!pgPool) {
+    const { Pool } = require('pg');
+    pgPool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  }
+  return pgPool;
 }
-function saveSessions() {
-  try { fs.writeFileSync(SESS_FILE, JSON.stringify(Object.fromEntries(sessions))); } catch {}
+async function storeInit() {
+  if (usePgEnv) {
+    try {
+      const pool = pgGet();
+      await pool.query('CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value JSONB)');
+      const { rows } = await pool.query('SELECT key, value FROM kv');
+      const m = Object.fromEntries(rows.map(r => [r.key, r.value]));
+      userCache = Array.isArray(m.users) ? m.users : [];
+      sessCacheObj = m.sessions || {};
+      roomsCacheArr = Array.isArray(m.rooms) ? m.rooms : [];
+      pgOk = true;
+      console.log('영속 저장소: Postgres 사용');
+    } catch (e) { console.error('PG 접속 실패, 파일 모드로 대체:', e.message); }
+  }
+  if (!pgOk) {
+    userCache = readJson(USERS_FILE, []);
+    sessCacheObj = readJson(SESS_FILE, {});
+    roomsCacheArr = readJson(ROOMS_FILE, []);
+    console.log('영속 저장소: 파일 사용');
+  }
+  let dirty = false;
+  for (const u of userCache) if (ensureStats(u)) dirty = true;
+  for (const [k, v] of Object.entries(sessCacheObj)) sessions.set(k, v);
+  for (const r of roomsCacheArr) rooms.set(r.id, { ...r, order: [], emptySince: null });
+  if (dirty) persistUsers();
+}
+async function storeFlush() {
+  if (!pgOk) return;
+  try {
+    const pool = pgGet();
+    const up = (k, v) => pool.query('INSERT INTO kv(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value', [k, v]);
+    if (storeDirty.users) { await up('users', JSON.stringify(userCache)); storeDirty.users = false; }
+    if (storeDirty.sessions) { await up('sessions', JSON.stringify(sessCacheObj)); storeDirty.sessions = false; }
+    if (storeDirty.rooms) { await up('rooms', JSON.stringify(roomsCacheArr)); storeDirty.rooms = false; }
+  } catch (e) { console.error('store flush 실패:', e.message); }
+}
+setInterval(storeFlush, 10000);
+function persistUsers() {
+  storeDirty.users = true;
+  if (!pgOk) writeJson(USERS_FILE, userCache);
+}
+function persistSessions() {
+  sessCacheObj = Object.fromEntries(sessions);
+  storeDirty.sessions = true;
+  if (!pgOk) writeJson(SESS_FILE, sessCacheObj);
 }
 let roomsDirty = false;
-function saveRooms() {
-  try {
-    const arr = [...rooms.values()].map(r => ({ ...r, order: [] }));
-    fs.writeFileSync(ROOMS_FILE, JSON.stringify(arr, null, 2));
-    roomsDirty = false;
-  } catch {}
+function persistRooms() {
+  roomsCacheArr = [...rooms.values()].map(r => ({ ...r, order: [] }));
+  storeDirty.rooms = true;
+  roomsDirty = false;
+  if (!pgOk) writeJson(ROOMS_FILE, roomsCacheArr);
 }
-function loadRooms() {
-  try {
-    const arr = JSON.parse(fs.readFileSync(ROOMS_FILE, 'utf8'));
-    for (const r of arr) rooms.set(r.id, { ...r, order: [], emptySince: null });
-  } catch {}
-}
-setInterval(() => { if (roomsDirty) saveRooms(); }, 15000);
+function markRoomsDirty() { roomsDirty = true; storeDirty.rooms = true; }
+setInterval(() => { if (roomsDirty) persistRooms(); }, 15000);
+
+function loadUsers() { return userCache || []; }
+function saveUsers(u) { userCache = u; persistUsers(); }
+function loadSessions() {} // 부팅 시 storeInit이 처리
+function saveSessions() { persistSessions(); }
+function saveRooms() { persistRooms(); }
+function loadRooms() {} // 부팅 시 storeInit이 처리
 
 // 랭킹/경쟁전 스탯 보장 (구 계정 마이그레이션)
 function ensureStats(u) {
@@ -192,9 +232,12 @@ app.patch('/api/nickname', authMiddleware, (req, res) => {
 
 // ---------- Room API ----------
 const MODES = {
-  conquest: { name: '정복전 (배틀필드식)', desc: 'A/B/C 거점 점령, 티켓 200', defaultMap: 'desert_storm', maxPlayers: 16 },
+  conquest: { name: '정복전 (배틀필드식)', desc: 'A/B/C 거점 점령, 티켓 150', defaultMap: 'desert_storm', maxPlayers: 16 },
   operation: { name: '블랙호크 작전 (델타포스식)', desc: '광활한 밸리, 목표물 파괴 + 생존', defaultMap: 'delta_valley', maxPlayers: 12 },
-  defuse: { name: '폭탄 해체전 (카스식)', desc: '5라운드, 폭탄 설치/해체, 경제 시스템', defaultMap: 'cs_dust', maxPlayers: 10 }
+  defuse: { name: '폭탄 해체전 (카스식)', desc: '5라운드, 폭탄 설치/해체, 경제 시스템', defaultMap: 'cs_dust', maxPlayers: 10 },
+  tdm: { name: '팀 데스매치', desc: '50킬 선취, 리스폰 빠름', defaultMap: 'desert_storm', maxPlayers: 16 },
+  ffa: { name: '개인 데스매치 (FFA)', desc: '20킬 또는 5분 최고킬 우승', defaultMap: 'cs_dust', maxPlayers: 12 },
+  gungame: { name: '건게임', desc: '킬마다 무기 변경, 나이프킬 완주 우승', defaultMap: 'cs_dust', maxPlayers: 12 }
 };
 
 function publicRoom(r) {
@@ -260,6 +303,9 @@ app.delete('/api/rooms/:id', authMiddleware, (req, res) => {
 function initRoomState(mode) {
   if (mode === 'conquest') return { tickets: { alpha: 150, bravo: 150 }, flags: { A: 'neutral', B: 'neutral', C: 'neutral' }, progress: { A: 0, B: 0, C: 0 } };
   if (mode === 'operation') return { objectiveHp: 1000, phase: 'combat', targetDestroyed: false };
+  if (mode === 'tdm') return { score: {}, target: 50 };
+  if (mode === 'ffa') return { scores: {}, target: 20, timeLeft: 300 };
+  if (mode === 'gungame') return { target: 9 };
   return { round: 1, maxRounds: 5, score: { CT: 0, T: 0 }, bomb: { planted: false, site: null, timeLeft: 0, exploded: false }, phase: 'buy', roundTimer: 100 };
 }
 
@@ -280,6 +326,7 @@ setInterval(() => {
 }, 60 * 1000);
 
 function assignTeam(room) {
+  if (room.mode === 'ffa') return 'FFA' + room.order.length; // 개인전: 전원 적대
   // defuse: CT/T, else alpha/bravo
   const counts = {};
   for (const sid of room.order) { const p = players.get(sid); if (p) counts[p.team] = (counts[p.team] || 0) + 1; }
@@ -289,7 +336,8 @@ function assignTeam(room) {
 
 // 경쟁전 레이팅 정산 (승 +25, 패 -15, 무승부 +0, 최소 0)
 // 킬/데스는 persistKill에서 즉시 반영되므로 여기선 승패/레이팅만 처리
-function settleMatch(room, winner) {
+// winnerNick이 있으면 개인전: 해당 유저만 +25, 나머지 -15
+function settleMatch(room, winner, winnerNick = null) {
   const users = loadUsers();
   let dirty = false;
   const changes = [];
@@ -300,8 +348,9 @@ function settleMatch(room, winner) {
     if (!u) continue;
     ensureStats(u);
     if (room.ranked && winner && winner !== 'draw') {
-      const won = pl.team === winner;
-      const delta = won ? 25 : -15;
+      let won, delta;
+      if (winnerNick) { won = pl.nickname === winnerNick; delta = won ? 25 : -15; }
+      else { won = pl.team === winner; delta = won ? 25 : -15; }
       u.rating = Math.max(0, (u.rating || 1000) + delta);
       if (won) u.wins = (u.wins || 0) + 1; else u.losses = (u.losses || 0) + 1;
       u.matches = (u.wins || 0) + (u.losses || 0);
@@ -314,14 +363,14 @@ function settleMatch(room, winner) {
 }
 
 // 매치 종료 공통 처리 (정산+브로드캐스트+상태리셋)
-function endMatch(room, winner, reason) {
-  const changes = settleMatch(room, winner);
+function endMatch(room, winner, reason, winnerNick = null) {
+  const changes = settleMatch(room, winner, winnerNick);
   let mvp = null; // 세션 최다킬
   for (const sid of room.order) {
     const pl = players.get(sid);
     if (pl && pl.kills > 0 && (!mvp || pl.kills > mvp.kills)) mvp = { nickname: pl.nickname, kills: pl.kills, team: pl.team };
   }
-  io.to('room_' + room.id).emit('game:over', { winner, reason, state: room.state, ranked: !!room.ranked, ratingChanges: changes, mvp });
+  io.to('room_' + room.id).emit('game:over', { winner, reason, state: room.state, ranked: !!room.ranked, ratingChanges: changes, mvp, winnerNick });
   room.state = initRoomState(room.mode);
   roomsDirty = true;
   io.to('room_' + room.id).emit('game:reset', { state: room.state });
@@ -364,6 +413,21 @@ setInterval(() => {
         room.state.score.T++;
         io.to('room_' + room.id).emit('bomb:exploded', { state: room.state });
         setTimeout(() => nextRound(room), 3000);
+      } else {
+        io.to('room_' + room.id).emit('game:tick', { state: room.state });
+      }
+    }
+    if (room.mode === 'ffa') { // 개인전 5분 타이머
+      room.state.timeLeft -= 1;
+      if (room.state.timeLeft <= 0) {
+        const top = Object.entries(room.state.scores).sort((a, b) => b[1] - a[1])[0];
+        if (!top) {
+          room.state = initRoomState(room.mode);
+          io.to('room_' + room.id).emit('game:reset', { state: room.state });
+        } else {
+          const who = [...players.values()].find(pl => pl.roomId === room.id && pl.nickname === top[0]);
+          endMatch(room, who ? who.team : 'ffa', '시간 종료!', top[0]);
+        }
       } else {
         io.to('room_' + room.id).emit('game:tick', { state: room.state });
       }
@@ -516,6 +580,24 @@ io.on('connection', (socket) => {
       io.to('room_' + room.id).emit('player:damaged', { target: targetEntry.nickname, hp: targetEntry.hp, attacker: shooter.nickname, stun });
     }
     checkDefuseElimination(room);
+    // 팀 데스매치: 50킬 선취
+    if (room.mode === 'tdm' && shooter.team) {
+      const s = room.state.score;
+      s[shooter.team] = (s[shooter.team] || 0) + 1;
+      if (s[shooter.team] >= room.state.target) endMatch(room, shooter.team, '팀 데스매치 목표 달성!');
+      else io.to('room_' + room.id).emit('game:tick', { state: room.state });
+    }
+    // 개인전: 20킬 선취 (실제 플레이어만 집계)
+    if (room.mode === 'ffa' && shooter.userId) {
+      const sc = room.state.scores;
+      sc[shooter.nickname] = (sc[shooter.nickname] || 0) + 1;
+      if (sc[shooter.nickname] >= room.state.target) endMatch(room, shooter.team, '개인전 목표 달성!', shooter.nickname);
+      else io.to('room_' + room.id).emit('game:tick', { state: room.state });
+    }
+    // 건게임: 9레벨(나이프킬) 완주
+    if (room.mode === 'gungame' && shooter.kills >= 9) {
+      endMatch(room, shooter.team, '건게임 완주!', shooter.nickname);
+    }
   }
 
   // 피격 판정 (슈터가 raycast 후 전송 → 서버가 HP 차감 후 브로드캐스트)
@@ -534,7 +616,7 @@ io.on('connection', (socket) => {
 
   // 봇 공격 판정 (클라 봇이 원격 플레이어를 맞췄을 때, 킬러=BOT 이름)
   socket.on('bot:hit', (d) => {
-    const { bot, target, damage } = d || {};
+    const { bot, target, damage, team } = d || {};
     if (!bot || !target || !damage || damage > 60) return;
     const reporter = players.get(socket.id);
     if (!reporter || !reporter.roomId) return;
@@ -542,7 +624,7 @@ io.on('connection', (socket) => {
     if (!room) return;
     const targetEntry = [...players.values()].find(pl => pl.roomId === reporter.roomId && pl.nickname === target && pl.alive);
     if (!targetEntry) return;
-    strike(room, { nickname: String(bot).slice(0, 16), team: null, kills: 0, deaths: 0, money: 800, userId: null }, targetEntry, Math.min(60, damage), 'BOT');
+    strike(room, { nickname: String(bot).slice(0, 16), team: team || null, kills: 0, deaths: 0, money: 800, userId: null }, targetEntry, Math.min(60, damage), 'BOT');
   });
   socket.on('player:throw', (d) => {
     const p = players.get(socket.id);
@@ -649,6 +731,9 @@ io.on('connection', (socket) => {
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-loadSessions();
-loadRooms();
-server.listen(PORT, () => console.log(`FPS 서버 실행: http://localhost:${PORT}`));
+storeInit().then(() => {
+  server.listen(PORT, () => console.log(`FPS 서버 실행: http://localhost:${PORT}`));
+}).catch((e) => {
+  console.error('store 초기화 실패, 빈 상태로 시작:', e.message);
+  server.listen(PORT, () => console.log(`FPS 서버 실행: http://localhost:${PORT}`));
+});

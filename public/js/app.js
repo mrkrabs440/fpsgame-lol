@@ -103,7 +103,7 @@ async function loadRooms() {
   renderRooms(j.rooms || []);
 }
 function renderRooms(rooms) {
-  const modeName = { conquest: '정복전', operation: '작전', defuse: '폭파전' };
+  const modeName = { conquest: '정복전', operation: '작전', defuse: '폭파전', tdm: '팀데매', ffa: '개인전', gungame: '건게임' };
   if (!rooms.length) { $('room-list').innerHTML = '<p style="color:#7d8ea0">개설된 방이 없습니다. 첫 방을 만들어보세요!</p>'; return; }
   $('room-list').innerHTML = rooms.map(rm =>
     `<div class="room${rm.ranked ? ' ranked' : ''}"><div class="info"><b>${escapeHtml(rm.name)}</b> ${rm.ranked ? '<span class="ranked-badge">🏆경쟁</span>' : ''} <span class="mode">[${modeName[rm.mode] || rm.mode} · ${escapeHtml(rm.map)}]</span><br><span class="mode">방장 ${escapeHtml(rm.host)} · ${rm.playerCount}/${rm.maxPlayers}명</span></div><button data-join="${rm.id}">입장</button></div>`).join('');
@@ -124,7 +124,8 @@ $('btn-do-create').onclick = async () => {
   const name = $('room-name').value.trim() || `${myNick}의 방`;
   const mode = $('room-mode').value, maxPlayers = parseInt($('room-max').value);
   const ranked = $('room-ranked').checked;
-  const map = mode === 'conquest' ? 'desert_storm' : mode === 'operation' ? 'delta_valley' : 'cs_dust';
+  const mapByMode = { conquest: 'desert_storm', operation: 'delta_valley', defuse: 'cs_dust', tdm: 'desert_storm', ffa: 'cs_dust', gungame: 'cs_dust' };
+  const map = mapByMode[mode] || 'cs_dust';
   const r = await fetch('/api/rooms', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ name, mode, map, maxPlayers, ranked }) });
   const j = await r.json();
   if (!j.ok) return alert(j.error);

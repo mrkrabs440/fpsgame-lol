@@ -10,8 +10,11 @@ const WEAPONS = [
   { id: 'DEAGLE', dmg: 42, rpm: 220, mag: 7, reserve: 35, auto: false, spread: 0.01 },
   { id: 'KNIFE', dmg: 55, rpm: 75, mag: Infinity, reserve: Infinity, melee: true, range: 2.4 },
   { id: 'RPG', dmg: 120, rpm: 25, mag: 1, reserve: 3, auto: false, spread: 0.005, rocket: true },
-  { id: 'TASER', dmg: 15, rpm: 120, mag: 10, reserve: 30, auto: false, spread: 0.008, stun: true, range: 12 },
+  { id: 'TASER', dmg: 25, rpm: 150, mag: 12, reserve: 36, auto: false, spread: 0.008, stun: true, range: 15 },
 ];
+
+// 건게임 무기 순서 (마지막 나이프킬이 우승)
+const GUNGAME_ORDER = [0, 2, 1, 3, 5, 4, 8, 7, 6];
 
 // 절차 사운드 (에셋 없이 WebAudio 합성)
 const Sfx = {
@@ -281,7 +284,7 @@ export class FPSGame {
       // 외곽 절벽
       for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; this.addHill(Math.cos(a) * 108, Math.sin(a) * 108, 12, 14, 0xb08d55); }
       this.makeFlag('A', -50, 0, -50); this.makeFlag('B', 0, 0, 0); this.makeFlag('C', 50, 0, 50);
-      this.spawnPoints = { alpha: [{ x: -70, z: -70 }], bravo: [{ x: 70, z: 70 }] };
+      this.spawnPoints = { alpha: [{ x: -70, z: -70 }], bravo: [{ x: 70, z: 70 }], ffa: [{ x: -60, z: -60 }, { x: 60, z: 60 }, { x: -60, z: 60 }, { x: 60, z: -60 }, { x: 0, z: -70 }, { x: 0, z: 70 }] };
     } else if (map === 'delta_valley') {
       // ---- 델타포스식 밸리: 강 + 다리 + 숲 + 요새 ----
       this.addGround(320, 0x6a7d4a);
@@ -316,7 +319,7 @@ export class FPSGame {
       this.addSandbags(60, -50, 0);
       this.objectiveHpMesh = this.addBox(60, 12, -60, 10, 1, 0.5, 0xff0000, false);
       this.addLamp(-58, 55); this.addLamp(58, -52);
-      this.spawnPoints = { alpha: [{ x: -60, z: 60 }], bravo: [{ x: 40, z: -40 }] };
+      this.spawnPoints = { alpha: [{ x: -60, z: 60 }], bravo: [{ x: 40, z: -40 }], ffa: [{ x: -60, z: 60 }, { x: 60, z: -60 }, { x: -40, z: 0 }, { x: 40, z: 0 }, { x: 0, z: 60 }, { x: 0, z: -60 }] };
     } else {
       // ---- 카스식 더스트: 롱/미드/터널/사이트 ----
       this.addGround(120, 0xbfa77a);
@@ -349,7 +352,7 @@ export class FPSGame {
       // 가로등 복도
       this.addLamp(-20, 0); this.addLamp(20, 0); this.addLamp(0, 20);
       this.makeBombSite('A', -35, 0, 30); this.makeBombSite('B', 35, 0, 30);
-      this.spawnPoints = { CT: [{ x: 0, z: 50 }], T: [{ x: 0, z: -50 }] };
+      this.spawnPoints = { CT: [{ x: 0, z: 50 }], T: [{ x: 0, z: -50 }], ffa: [{ x: 0, z: 50 }, { x: 0, z: -50 }, { x: -40, z: 0 }, { x: 40, z: 0 }, { x: -40, z: 30 }, { x: 40, z: 30 }] };
     }
   }
 
@@ -423,7 +426,7 @@ export class FPSGame {
   }
 
   spawnPlayer() {
-    const key = this.room.mode === 'defuse' ? this.team : (this.team === 'alpha' ? 'alpha' : 'bravo');
+    const key = this.room.mode === 'defuse' ? this.team : this.room.mode === 'ffa' ? 'ffa' : (this.team === 'alpha' ? 'alpha' : 'bravo');
     const list = (this.spawnPoints && (this.spawnPoints[key] || this.spawnPoints.alpha)) || [{ x: 0, z: 0 }];
     const s = list[Math.floor(Math.random() * list.length)];
     this.pos = this.findSpawn(s.x, s.z);
@@ -642,10 +645,11 @@ export class FPSGame {
     this.reloading = false; this.updateHUD();
   }
 
-  // 무료 무기 상점 (B)
+  // 무료 무기 상점 (B, 건게임 제외)
   toggleShop() {
     const el = document.getElementById('shop');
     if (!el) return;
+    if (this.room.mode === 'gungame') { this.feed('건게임에선 상점 사용 불가!'); return; }
     if (el.classList.contains('hidden')) {
       document.exitPointerLock(); this.buildShop(); el.classList.remove('hidden');
     } else { el.classList.add('hidden'); this.canvas.requestPointerLock(); }
@@ -669,6 +673,7 @@ export class FPSGame {
   }
 
   switchWeapon(i) {
+    if (this.room.mode === 'gungame') return; // 건게임은 킬 진도로 고정
     if (this.reloading || i === this.wi || i < 0 || i >= WEAPONS.length) return;
     this.wi = i; this.vmSwitchT = 0.28;
     this.vmGuns.forEach((g, k) => g.visible = k === i);
@@ -916,7 +921,7 @@ export class FPSGame {
     s.on('game:over', (d) => {
       this.serverState = d.state;
       const ov = document.getElementById('round-overlay');
-      let txt = `🏆 ${d.winner} 승리! (${d.reason})`;
+      let txt = d.winnerNick ? `🏆 ${d.winnerNick} 우승! (${d.reason})` : `🏆 ${d.winner} 승리! (${d.reason})`;
       const mine = (d.ratingChanges || []).find(c => c.nickname === this.nick);
       if (d.ranked && mine) txt += ` | 레이팅 ${mine.delta > 0 ? '+' : ''}${mine.delta} → ${mine.rating} (${mine.tier})`;
       else if (d.ranked) txt += ' | [경쟁전 정산됨]';
@@ -924,9 +929,9 @@ export class FPSGame {
       ov.textContent = txt; ov.classList.remove('hidden');
       setTimeout(() => ov.classList.add('hidden'), 6000);
       this.feed(txt);
-      if (d.winner === this.team) Sfx.win(); else if (d.winner && d.winner !== 'draw') Sfx.lose();
-      // 한판 종료 화면
-      const won = d.winner === this.team;
+      // 한판 종료 화면 (개인전/건게임은 닉네임 우승)
+      const won = d.winnerNick ? d.winnerNick === this.nick : d.winner === this.team;
+      if (won) Sfx.win(); else if (d.winner && d.winner !== 'draw') Sfx.lose();
       document.getElementById('me-title').textContent = d.winner === 'draw' ? '🤝 무승부!' : won ? '🏆 승리!' : '💀 패배...';
       let sub = d.reason || '';
       if (d.mvp) sub += ` · 🌟 MVP ${d.mvp.nickname} (${d.mvp.kills}킬)`;
@@ -1195,8 +1200,12 @@ export class FPSGame {
       if (realCount >= 1) return;
       const n = this.room.mode === 'defuse' ? 4 : 5;
       for (let i = 0; i < n; i++) {
-        const enemyTeam = this.room.mode === 'defuse' ? (this.team === 'CT' ? 'T' : 'CT') : (this.team === 'alpha' ? 'bravo' : 'alpha');
-        const team = i % 2 === 0 ? enemyTeam : this.team;
+        let team;
+        if (this.room.mode === 'ffa') team = 'FOE' + i; // 개인전: 봇 전원 각자 적대
+        else {
+          const foe = this.team === 'CT' ? 'T' : this.team === 'T' ? 'CT' : this.team === 'alpha' ? 'bravo' : 'alpha';
+          team = i % 2 === 0 ? foe : this.team;
+        }
         const name = `BOT_${i + 1}`;
         const r = this.makeRemoteMesh({ team }, name);
         r.isBot = true; r.hp = 100; r.alive = true; r.team = team;
@@ -1277,7 +1286,7 @@ export class FPSGame {
             } else if (r.foe.kind === 'bot') {
               this.damageBot(r.foe.name, foe, dmg, name, false, false);
             } else {
-              this.socket.emit('bot:hit', { bot: name, target: r.foe.name, damage: Math.round(dmg) });
+              this.socket.emit('bot:hit', { bot: name, botTeam: r.team, target: r.foe.name, damage: Math.round(dmg) });
             }
           }
         }
@@ -1385,7 +1394,7 @@ export class FPSGame {
     if (performance.now() - this.lastShootEmit > 80) { this.lastShootEmit = performance.now(); this.socket.emit('player:shoot'); }
     const dir = new THREE.Vector3(); this.camera.getWorldDirection(dir);
     const from = this.camera.position.clone().addScaledVector(dir, 0.7);
-    const vel = dir.clone().multiplyScalar(28);
+    const vel = dir.clone().multiplyScalar(46); // 버프: 탄속 28→46
     this.spawnRocket(from, vel, true);
     this.socket.emit('player:rocket', { from: { x: from.x, y: from.y, z: from.z }, vel: { x: vel.x, y: vel.y, z: vel.z } });
     this.updateHUD();
@@ -1481,6 +1490,7 @@ export class FPSGame {
         this.kills++; this.money += 300; Sfx.kill();
         this.firstBloodCheck(this.nick, name);
         this.onMyKill();
+        this.updateHUD(); // 건게임 진도·탄약 표시 갱신
       }
       // 폭파전: 그 라운드에선 부활 없음 / 그 외: 2초 후 부활
       if (this.room.mode !== 'defuse') {
@@ -1614,6 +1624,15 @@ export class FPSGame {
 
   // ================= HUD =================
   updateHUD() {
+    // 건게임: 킬 수로 무기 강제 변경
+    if (this.room.mode === 'gungame') {
+      const target = GUNGAME_ORDER[Math.min(this.kills, GUNGAME_ORDER.length - 1)];
+      if (target !== this.wi) {
+        this.wi = target; this.vmSwitchT = 0.2;
+        this.vmGuns.forEach((g, k) => g.visible = k === target);
+        this.updateVmFlashPos();
+      }
+    }
     const w = WEAPONS[this.wi], a = this.ammo[this.wi];
     const fmt = (v) => isFinite(v) ? v : '∞';
     document.getElementById('weapon-name').textContent = `${w.id} [1-${WEAPONS.length}]${this.reloading ? ' - 장전중...' : ''}`;
@@ -1659,10 +1678,24 @@ export class FPSGame {
         this.objectiveHpMesh.scale.x = k;
         this.objectiveHpMesh.material.color.set(k > 0.5 ? 0x00ff00 : k > 0.25 ? 0xffaa00 : 0xff0000);
       }
-    } else {
+    } else if (this.room.mode === 'defuse') {
       el.textContent = `${rk}💣 폭파전 R${st.round}/${st.maxRounds} | CT ${st.score?.CT} : ${st.score?.T} T`;
       fb.textContent = st.bomb?.planted ? `💣 ${st.bomb.site} 설치됨! ${st.bomb.timeLeft}s` : '폭탄 미설치';
       tm.textContent = '';
+    } else if (this.room.mode === 'tdm') {
+      const s = st.score || {};
+      el.textContent = `${rk}💀 팀 데스매치 | ${s.alpha ?? s.CT ?? 0} : ${s.bravo ?? s.T ?? 0} (선착 ${st.target}킬)`;
+      fb.textContent = ''; tm.textContent = '';
+    } else if (this.room.mode === 'ffa') {
+      const sc = st.scores || {};
+      const top = Object.entries(sc).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([n, k]) => `${n} ${k}킬`).join(' · ');
+      const t = st.timeLeft || 0;
+      el.textContent = `${rk}🔫 개인전 | ${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')} | 목표 ${st.target}킬`;
+      fb.textContent = top || '아직 킬 없음'; tm.textContent = '';
+    } else if (this.room.mode === 'gungame') {
+      const lv = Math.min(this.kills, GUNGAME_ORDER.length - 1);
+      el.textContent = `${rk}🔫 건게임 | Lv.${lv + 1}/9 ${WEAPONS[GUNGAME_ORDER[lv]].id}`;
+      fb.textContent = lv >= 8 ? '나이프킬로 완주!' : '킬마다 다음 무기!'; tm.textContent = '';
     }
     this.drawMinimap();
   }
