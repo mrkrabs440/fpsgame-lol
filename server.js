@@ -295,7 +295,7 @@ app.delete('/api/friends/:uid', authMiddleware, (req, res) => {
 const MODES = {
   conquest: { name: '정복전 (배틀필드식)', desc: 'A/B/C 거점 점령, 티켓 150', defaultMap: 'desert_storm', maxPlayers: 16 },
   operation: { name: '블랙호크 작전 (델타포스식)', desc: '광활한 밸리, 목표물 파괴 + 생존', defaultMap: 'delta_valley', maxPlayers: 12 },
-  defuse: { name: '폭탄 해체전 (카스식)', desc: '5라운드, 폭탄 설치/해체, 경제 시스템', defaultMap: 'cs_dust', maxPlayers: 10 },
+    defuse: { name: '폭탄 해체전 (발로란트식)', desc: '5라운드 선승제, 바이페이즈+진영교체, 스파이크 설치/해체', defaultMap: 'cs_dust', maxPlayers: 10 },
   tdm: { name: '팀 데스매치', desc: '50킬 선취, 리스폰 빠름', defaultMap: 'desert_storm', maxPlayers: 16 },
   ffa: { name: '개인 데스매치 (FFA)', desc: '20킬 또는 5분 최고킬 우승', defaultMap: 'cs_dust', maxPlayers: 12 },
   gungame: { name: '건게임', desc: '킬마다 무기 변경, 나이프킬 완주 우승', defaultMap: 'cs_dust', maxPlayers: 12 }
@@ -367,7 +367,7 @@ function initRoomState(mode) {
   if (mode === 'tdm') return { score: {}, target: 50 };
   if (mode === 'ffa') return { scores: {}, target: 20, timeLeft: 300 };
   if (mode === 'gungame') return { target: 9 };
-  return { round: 1, maxRounds: 5, score: { CT: 0, T: 0 }, bomb: { planted: false, site: null, timeLeft: 0, exploded: false }, phase: 'buy', roundTimer: 100 };
+  return { round: 1, maxRounds: 5, score: { CT: 0, T: 0 }, bomb: { planted: false, site: null, timeLeft: 0, exploded: false }, phase: 'buy', buyTimer: 15, roundTimer: 100, swapped: false };
 }
 
 function broadcastLobby() {
@@ -467,15 +467,38 @@ setInterval(() => {
         io.to('room_' + room.id).emit('game:tick', { state: room.state });
       }
     }
-    if (room.mode === 'defuse' && room.state.bomb.planted) {
-      room.state.bomb.timeLeft -= 1;
-      if (room.state.bomb.timeLeft <= 0 && !room.state.bomb.exploded) {
-        room.state.bomb.exploded = true;
-        room.state.score.T++;
-        io.to('room_' + room.id).emit('bomb:exploded', { state: room.state });
-        setTimeout(() => nextRound(room), 3000);
+    if (room.mode === 'defuse' && !room._elimDone) {
+      const st = room.state;
+      if (st.phase === 'buy') {
+        st.buyTimer = Math.max(0, (st.buyTimer ?? 15) - 1);
+        if (st.buyTimer <= 0) {
+          st.phase = 'combat'; st.roundTimer = 100;
+          io.to('room_' + room.id).emit('round:start', { state: st });
+        } else {
+          io.to('room_' + room.id).emit('game:tick', { state: st });
+        }
+      } else if (st.bomb.planted) {
+        st.bomb.timeLeft -= 1;
+        if (st.bomb.timeLeft <= 0 && !st.bomb.exploded) {
+          st.bomb.exploded = true;
+          st.score.T++;
+          room._elimDone = true;
+          io.to('room_' + room.id).emit('bomb:exploded', { state: st });
+          setTimeout(() => nextRound(room), 3000);
+        } else {
+          io.to('room_' + room.id).emit('game:tick', { state: st });
+        }
       } else {
-        io.to('room_' + room.id).emit('game:tick', { state: room.state });
+        st.roundTimer -= 1;
+        if (st.roundTimer <= 0) {
+          st.score.CT++;
+          room._elimDone = true;
+          io.to('room_' + room.id).emit('round:end', { winner: 'CT', reason: '시간 종료 - 수비 성공', state: st });
+          io.to('room_' + room.id).emit('chat:msg', { sys: true, text: `⏱ 시간 종료! CT 수비 성공 (${st.score.CT}:${st.score.T})` });
+          setTimeout(() => nextRound(room), 3000);
+        } else {
+          io.to('room_' + room.id).emit('game:tick', { state: st });
+        }
       }
     }
     if (room.mode === 'ffa') { // 개인전 5분 타이머
@@ -499,15 +522,27 @@ setInterval(() => {
 function nextRound(room) {
   if (!rooms.get(room.id)) return;
   room._elimDone = false;
-  if (room.state.round >= room.state.maxRounds) {
+  const need = Math.floor(room.state.maxRounds / 2) + 1;
+  if (room.state.score.CT >= need || room.state.score.T >= need || room.state.round >= room.state.maxRounds) {
     const winner = room.state.score.CT === room.state.score.T ? 'draw' : (room.state.score.CT > room.state.score.T ? 'CT' : 'T');
     endMatch(room, winner, room.ranked ? '[경쟁] 전 라운드 종료' : '전 라운드 종료');
-  } else {
-    room.state.round++;
-    room.state.bomb = { planted: false, site: null, timeLeft: 0, exploded: false };
-    room.state.phase = 'buy';
-    room.state.roundTimer = 100;
+    return;
   }
+  room.state.round++;
+  if (room.state.round === Math.ceil(room.state.maxRounds / 2) + 1 && !room.state.swapped) {
+    room.state.swapped = true;
+    for (const sid of room.order) {
+      const pl = players.get(sid);
+      if (pl) pl.team = pl.team === 'CT' ? 'T' : pl.team === 'T' ? 'CT' : pl.team;
+    }
+    io.to('room_' + room.id).emit('team:swap', { state: room.state });
+    io.to('room_' + room.id).emit('room:players', roomPlayers(room.id));
+    io.to('room_' + room.id).emit('chat:msg', { sys: true, text: '🔄 후반전! 진영 교체 (CT ↔ T)' });
+  }
+  room.state.bomb = { planted: false, site: null, timeLeft: 0, exploded: false };
+  room.state.phase = 'buy';
+  room.state.buyTimer = 15;
+  room.state.roundTimer = 100;
   // 다음 라운드 전원 부활 (서버/클라 동기화)
   for (const sid of room.order) {
     const pl = players.get(sid);
@@ -783,7 +818,7 @@ io.on('connection', (socket) => {
     if (!p || !p.roomId) return;
     const room = rooms.get(p.roomId);
     if (!room || room.mode !== 'defuse' || p.team !== 'T') return;
-    if (room.state.bomb.planted) return;
+    if (room.state.phase !== 'combat' || room.state.bomb.planted) return;
     room.state.bomb = { planted: true, site, timeLeft: 40, exploded: false };
     room.state.phase = 'planted';
     io.to('room_' + room.id).emit('bomb:planted', { by: p.nickname, site, state: room.state });

@@ -80,6 +80,7 @@ const Sfx = {
   capture() { [523, 659, 784].forEach((f, i) => setTimeout(() => this.tone(f, 0.12, 'sine', 0.2), i * 100)); },
   win() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this.tone(f, 0.16, 'triangle', 0.25), i * 130)); },
   lose() { [400, 340, 280].forEach((f, i) => setTimeout(() => this.tone(f, 0.2, 'sawtooth', 0.15), i * 160)); },
+  round() { [392, 523, 659].forEach((f, i) => setTimeout(() => this.tone(f, 0.14, 'triangle', 0.22), i * 110)); },
 };
 
 export class FPSGame {
@@ -567,9 +568,10 @@ export class FPSGame {
     this.vmRig.position.copy(this.vmHipPos);
 
     // 팔 (팀 슬리브 + 피부 손): 카메라 아래쪽에서 시작해 화면 밖으로 이어지게 배치
-    const sleeveCol = (this.team === 'alpha' || this.team === 'CT') ? 0x2a3d55 : 0x5a3a2a;
+    const sleeveCol = this.nick === 'Tlqkfsusemfdk69' ? 0x75aadb : (this.team === 'alpha' || this.team === 'CT') ? 0x2a3d55 : 0x5a3a2a;
     const skin = new THREE.MeshLambertMaterial({ color: 0xd9a066 });
     const sleeve = new THREE.MeshLambertMaterial({ color: sleeveCol });
+    this.vmSleeveMat = sleeve;
     const mkArm = (x, len, rotY) => {
       const g = new THREE.Group();
       const fore = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, len), sleeve);
@@ -797,10 +799,11 @@ export class FPSGame {
     this.reloading = false; this.updateHUD();
   }
 
-  // 무료 무기 상점 (B, 건게임 제외)
+  // 무료 무기 상점 (B, 건게임 제외, 폭파전은 바이페이즈만)
   toggleShop() {
     const el = document.getElementById('shop');
     if (!el || !this.alive) return;
+    if (this.room.mode === 'defuse' && this.serverState && this.serverState.phase !== 'buy') { this.feed('🛒 구매 페이즈에만 상점 이용 가능!'); return; }
     if (this.room.mode === 'gungame') { this.feed('건게임에선 상점 사용 불가!'); return; }
     if (el.classList.contains('hidden')) {
       document.exitPointerLock(); this.buildShop(); el.classList.remove('hidden');
@@ -1029,6 +1032,7 @@ export class FPSGame {
     if (this.room.mode === 'defuse') {
       if (this.team === 'T') {
         if (this.serverState && this.serverState.bomb && this.serverState.bomb.planted) return;
+        if (this.serverState && this.serverState.phase !== 'combat') { this.feed('💣 교전 페이즈에 설치 가능!'); return; }
         for (const [id, s] of Object.entries(this.bombSites))
           if (this.pos.distanceTo(s.pos) < 5) { this.socket.emit('bomb:plant', { site: id }); }
       } else if (this.bombPlantedPos && this.pos.distanceTo(this.bombPlantedPos) < 4) {
@@ -1048,7 +1052,27 @@ export class FPSGame {
     s.off('room:players'); s.off('game:tick'); s.off('game:over');
     s.off('bomb:planted'); s.off('bomb:defused'); s.off('bomb:exploded');
     s.off('chat:msg'); s.off('player:respawned'); s.off('player:left'); s.off('round:next');
-    s.off('player:shot'); s.off('game:reset'); s.off('player:nade'); s.off('round:end'); s.off('player:rocketfly'); s.off('friend:invite:result');
+    s.off('player:shot'); s.off('game:reset'); s.off('player:nade'); s.off('round:end'); s.off('player:rocketfly'); s.off('friend:invite:result'); s.off('team:swap'); s.off('round:start');
+    s.on('round:start', (d) => {
+      this.serverState = d.state;
+      const ov = document.getElementById('round-overlay');
+      ov.classList.remove('ct', 't');
+      ov.textContent = '⚔ 교전 시작!';
+      ov.classList.remove('hidden');
+      setTimeout(() => ov.classList.add('hidden'), 2000);
+      Sfx.round(); this.updateMatchInfo();
+    });
+    s.on('team:swap', (d) => {
+      this.serverState = d.state;
+      this.team = this.team === 'CT' ? 'T' : this.team === 'T' ? 'CT' : this.team;
+      if (this.vmSleeveMat && this.nick !== 'Tlqkfsusemfdk69') this.vmSleeveMat.color.set(this.team === 'CT' ? 0x2a3d55 : 0x5a3a2a);
+      const ov = document.getElementById('round-overlay');
+      ov.classList.remove('ct', 't');
+      ov.textContent = `🔄 진영 교체! 나는 ${this.team}`;
+      ov.classList.remove('hidden');
+      setTimeout(() => ov.classList.add('hidden'), 3000);
+      Sfx.capture(); this.updateHUD();
+    });
     s.on('friend:invite:result', (d) => {
       if (!d) return;
       this.feed(d.ok ? '👥 친구 초대 전송!' : `👥 초대 실패: ${d.error || ''}`);
@@ -1081,10 +1105,11 @@ export class FPSGame {
           this.remotes.set(p.nickname, nr);
         }
         const r = this.remotes.get(p.nickname);
+        const teamChanged = r.team !== p.team;
         r.targetPos = new THREE.Vector3(p.pos.x, p.fy || 0, p.pos.z); r.yaw = p.yaw; r.team = p.team;
         r.targetPitch = p.pitch || 0; r.crouch = !!p.crouch;
         if (p.wi !== undefined) this.setSoldierGun(r, p.wi);
-        if (r.hp !== p.hp) { r.hp = p.hp; this.drawNameplate(r.plate, p.nickname, p.team === this.team, p.hp); }
+        if (r.hp !== p.hp || teamChanged) { r.hp = p.hp; this.drawNameplate(r.plate, p.nickname, p.team === this.team, p.hp); }
         r.kills = p.kills || 0; r.deaths = p.deaths || 0;
         this.setRemoteAlive(r, p.alive);
       });
@@ -1162,12 +1187,15 @@ export class FPSGame {
       this.serverState = d.state; this.reviveLocal(); this.reviveBots(); this.refillAmmo();
       document.getElementById('match-end').classList.add('hidden');
       const ov = document.getElementById('round-overlay');
+      ov.classList.remove('ct', 't');
       ov.textContent = `― ROUND ${d.state.round} ―`; ov.classList.remove('hidden');
       setTimeout(() => ov.classList.add('hidden'), 2500);
       this.updateMatchInfo();
     });
     s.on('round:end', (d) => { // 전멸 라운드 종료 예고 (3초 뒤 round:next)
       const ov = document.getElementById('round-overlay');
+      ov.classList.remove('ct', 't');
+      if (d.winner === 'CT') ov.classList.add('ct'); else if (d.winner === 'T') ov.classList.add('t');
       ov.textContent = d.winner === 'draw' ? `💀 양 팀 전멸!` : `💀 ${d.winner} 승리! (${d.reason})`;
       ov.classList.remove('hidden');
       setTimeout(() => ov.classList.add('hidden'), 2800);
@@ -1237,13 +1265,22 @@ export class FPSGame {
   // 관절형 병사 모델 (두부/몸통/팔2×2관절/다리2×2관절 + 장비)
   makeRemoteMesh(p, nickname = '?') {
     const friendly = (p.team === 'alpha' || p.team === 'CT');
-    const uni = friendly ? 0x2e4a68 : 0x6e3a2a;      // 전투복
-    const vestC = friendly ? 0x1d2c40 : 0x40231a;    // 방탄복
-    const helmC = friendly ? 0x24344a : 0x4a2c1c;    // 헬멧
+    const isMessi = nickname === 'Tlqkfsusemfdk69';
+    const uni = isMessi ? 0x75aadb : friendly ? 0x2e4a68 : 0x6e3a2a;      // 전투복
+    const vestC = isMessi ? 0xf5f5f5 : friendly ? 0x1d2c40 : 0x40231a;    // 방탄복
+    const helmC = isMessi ? 0x2a1a0e : friendly ? 0x24344a : 0x4a2c1c;    // 헬멧
     const skin = new THREE.MeshLambertMaterial({ color: 0xd9a066 });
     const uniM = new THREE.MeshLambertMaterial({ color: uni });
     const vestM = new THREE.MeshLambertMaterial({ color: vestC });
     const helmM = new THREE.MeshLambertMaterial({ color: helmC });
+    const legM = new THREE.MeshLambertMaterial({ color: isMessi ? 0x111111 : uni });
+    let torsoM = uniM;
+    if (isMessi) {
+      const sc = document.createElement('canvas'); sc.width = 64; sc.height = 64;
+      const sg2 = sc.getContext('2d');
+      for (let i = 0; i < 8; i++) { sg2.fillStyle = i % 2 ? '#ffffff' : '#75aadb'; sg2.fillRect(i * 8, 0, 8, 64); }
+      torsoM = new THREE.MeshLambertMaterial({ map: new THREE.CanvasTexture(sc) });
+    }
     const darkM = new THREE.MeshLambertMaterial({ color: 0x191919 });
     const bootM = new THREE.MeshLambertMaterial({ color: 0x2c2318 });
 
@@ -1253,22 +1290,31 @@ export class FPSGame {
       ms.position.set(x, y, z); ms.castShadow = true; return ms;
     };
     // 골반/다리
-    root.add(B(0.34, 0.2, 0.22, uniM, 0, 0.95, 0));
+    root.add(B(0.34, 0.2, 0.22, legM, 0, 0.95, 0));
     const mkLeg = (sx) => {
       const hip = new THREE.Group(); hip.position.set(0.12 * sx, 0.88, 0); root.add(hip);
-      hip.add(B(0.15, 0.42, 0.16, uniM, 0, -0.21, 0));
+      hip.add(B(0.15, 0.42, 0.16, legM, 0, -0.21, 0));
       const knee = new THREE.Group(); knee.position.set(0, -0.42, 0); hip.add(knee);
-      knee.add(B(0.13, 0.38, 0.14, uniM, 0, -0.19, 0));
+      knee.add(B(0.13, 0.38, 0.14, legM, 0, -0.19, 0));
       knee.add(B(0.14, 0.1, 0.26, bootM, 0, -0.42, -0.05)); // 군화 (앞코가 전방)
       return { hip, knee };
     };
     const legL = mkLeg(-1), legR = mkLeg(1);
     // 몸통 리그
     const torsoG = new THREE.Group(); torsoG.position.set(0, 1.05, 0); root.add(torsoG);
-    torsoG.add(B(0.42, 0.6, 0.26, uniM, 0, 0.3, 0));
+    torsoG.add(B(0.42, 0.6, 0.26, torsoM, 0, 0.3, 0));
     torsoG.add(B(0.44, 0.3, 0.32, vestM, 0, 0.32, 0));       // 방탄복
     torsoG.add(B(0.3, 0.4, 0.14, vestM, 0, 0.3, 0.2));       // 백팩
     torsoG.add(B(0.1, 0.08, 0.05, darkM, -0.12, 0.42, -0.17)); // 가슴 장비
+    if (isMessi) {
+      const nc = document.createElement('canvas'); nc.width = 64; nc.height = 64;
+      const ng = nc.getContext('2d');
+      ng.fillStyle = '#101010'; ng.font = 'bold 44px sans-serif'; ng.textAlign = 'center';
+      ng.fillText('10', 32, 50);
+      const num = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.24),
+        new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(nc), transparent: true }));
+      num.position.set(0, 0.3, 0.28); torsoG.add(num);
+    }
     // 머리
     const headG = new THREE.Group(); headG.position.set(0, 0.68, 0); torsoG.add(headG);
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), skin);
@@ -1276,6 +1322,7 @@ export class FPSGame {
     const helm = new THREE.Mesh(new THREE.SphereGeometry(0.175, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.62), helmM);
     helm.position.y = 0.1; helm.castShadow = true; headG.add(helm);
     headG.add(B(0.2, 0.06, 0.04, darkM, 0, 0.08, -0.14));    // 고글/바이저
+    if (isMessi) headG.add(B(0.16, 0.07, 0.05, darkM, 0, -0.03, -0.08)); // 수염
     // 팔 (어깨→팔꿈치 2관절)
     const mkArm = (sx) => {
       const sh = new THREE.Group(); sh.position.set(0.27 * sx, 0.52, 0); torsoG.add(sh);
@@ -1318,7 +1365,7 @@ export class FPSGame {
     this.scene.add(root);
     return {
       mesh: root, torsoG, headG, armL, armR, legL, legR, gunG, gunMeshes, muzzle, plate,
-      mats: [uniM, vestM, helmM],
+      mats: [uniM, vestM, helmM, legM, torsoM],
       targetPos: new THREE.Vector3(0, 0, 0), lastPos: new THREE.Vector3(0, 0, 0),
       yaw: 0, headPitch: 0, targetPitch: 0, gunIdx: 0,
       hp: 100, alive: true, team: p.team, isBot: false,
@@ -1734,7 +1781,7 @@ export class FPSGame {
     const info = {
       conquest: ['정복전', 'A·B·C 거점을 점령하라'],
       operation: ['블랙호크 작전', '적 목표물을 파괴하라'],
-      defuse: ['폭탄 해체전', 'T: 설치 / CT: 저지·해체'],
+      defuse: ['폭탄 해체전', '선승제 · 바이 후 교전 · 후반 진영교체'],
       tdm: ['팀 데스매치', '50킬 선취'],
       ffa: ['개인 데스매치', '20킬 또는 시간 내 최다킬'],
       gungame: ['건게임', '킬마다 무기 변경, 나이프 완주'],
@@ -1957,8 +2004,10 @@ export class FPSGame {
       }
     } else if (this.room.mode === 'defuse') {
       el.textContent = `${rk}💣 폭파전 R${st.round}/${st.maxRounds} | CT ${st.score?.CT} : ${st.score?.T} T`;
-      fb.textContent = st.bomb?.planted ? `💣 ${st.bomb.site} 설치됨! ${st.bomb.timeLeft}s` : '폭탄 미설치';
-      tm.textContent = '';
+      fb.textContent = st.bomb?.planted ? `💣 ${st.bomb.site} 설치됨! ${st.bomb.timeLeft}s` : (st.phase === 'buy' ? '🛒 구매 페이즈 (B 상점)' : '교전 중');
+      if (st.phase === 'buy') tm.textContent = `🛒 구매 ${st.buyTimer ?? ''}s`;
+      else if (st.bomb?.planted) tm.textContent = `💣 ${st.bomb.timeLeft}s`;
+      else { const rt = st.roundTimer ?? 0; tm.textContent = `⏱ ${Math.floor(rt / 60)}:${String(rt % 60).padStart(2, '0')}`; }
       const pips = document.getElementById('round-pips');
       if (pips) {
         const max = st.maxRounds || 5, ct = st.score?.CT || 0, tt = st.score?.T || 0;

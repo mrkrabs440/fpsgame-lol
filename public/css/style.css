@@ -106,7 +106,9 @@ header{display:flex;justify-content:space-between;align-items:center}
 #interact-tip{position:absolute;left:50%;top:60%;transform:translateX(-50%);background:#ffb300;color:#111;padding:8px 16px;border-radius:8px;font-weight:bold}
 #respawn-overlay{position:absolute;inset:0;background:rgba(150,0,0,.35);display:flex;flex-direction:column;align-items:center;justify-content:center}
 #death-by{color:#ffb300;font-weight:bold;font-size:18px;margin:6px 0;text-shadow:0 0 8px #000}
-#round-overlay{position:absolute;left:50%;top:35%;transform:translate(-50%,-50%);font-size:42px;font-weight:bold;color:#ffb300;text-shadow:0 0 20px #000}
+#round-overlay{position:absolute;left:50%;top:35%;transform:translate(-50%,-50%);font-size:42px;font-weight:bold;color:#ffb300;text-shadow:0 0 20px #000;white-space:nowrap}
+#round-overlay.ct{color:#3a7bff}
+#round-overlay.t{color:#ff4655}
 #shop,#match-end{position:absolute;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;pointer-events:auto;z-index:5}
 .shop-box,.me-box{background:#141c26;border:1px solid #ffb300;border-radius:14px;padding:24px;min-width:380px;max-width:520px;text-align:center}
 .shop-box h2 span{color:#7CFC00;font-size:14px}
