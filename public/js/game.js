@@ -2,16 +2,16 @@ import * as THREE from 'three';
 
 // 무기 정의 (배틀필드/카스/델타포스 기반, 상점 무료)
 const WEAPONS = [
-  { id: 'M4A1', dmg: 25, rpm: 600, mag: 30, reserve: 120, auto: true, spread: 0.015 },
-  { id: 'AK47', dmg: 32, rpm: 540, mag: 30, reserve: 90, auto: true, spread: 0.02 },
-  { id: 'MP5', dmg: 20, rpm: 800, mag: 32, reserve: 128, auto: true, spread: 0.02 },
-  { id: 'M870', dmg: 12, pellets: 8, rpm: 70, mag: 6, reserve: 24, auto: false, spread: 0.03 },
-  { id: 'AWP', dmg: 95, rpm: 42, mag: 5, reserve: 20, auto: false, spread: 0.001, zoom: true },
-  { id: 'DEAGLE', dmg: 42, rpm: 220, mag: 7, reserve: 35, auto: false, spread: 0.01 },
+  { id: 'M4A1', dmg: 25, rpm: 600, mag: 30, reserve: 700, auto: true, spread: 0.015 },
+  { id: 'AK47', dmg: 32, rpm: 540, mag: 30, reserve: 700, auto: true, spread: 0.02 },
+  { id: 'MP5', dmg: 20, rpm: 800, mag: 32, reserve: 700, auto: true, spread: 0.02 },
+  { id: 'M870', dmg: 12, pellets: 8, rpm: 70, mag: 6, reserve: 700, auto: false, spread: 0.03 },
+  { id: 'AWP', dmg: 95, rpm: 42, mag: 5, reserve: 700, auto: false, spread: 0.001, zoom: true },
+  { id: 'DEAGLE', dmg: 42, rpm: 220, mag: 7, reserve: 700, auto: false, spread: 0.01 },
   { id: 'KNIFE', dmg: 55, rpm: 75, mag: Infinity, reserve: Infinity, melee: true, range: 2.4 },
-  { id: 'RPG', dmg: 120, rpm: 25, mag: 1, reserve: 33, auto: false, spread: 0.005, rocket: true },
-  { id: 'TASER', dmg: 25, rpm: 150, mag: 12, reserve: 36, auto: false, spread: 0.008, stun: true, range: 15 },
-  { id: 'GATLING', dmg: 18, rpm: 1200, mag: 100, reserve: 200, auto: true, spread: 0.025, spinup: 0.5 },
+  { id: 'RPG', dmg: 120, rpm: 25, mag: 1, reserve: 30, auto: false, spread: 0.005, rocket: true },
+  { id: 'TASER', dmg: 25, rpm: 150, mag: 12, reserve: 700, auto: false, spread: 0.008, stun: true, range: 15 },
+  { id: 'GATLING', dmg: 18, rpm: 1200, mag: 100, reserve: 700, auto: true, spread: 0.025, spinup: 0.5 },
 ];
 
 // 건게임 무기 순서 (마지막 나이프킬이 우승)
