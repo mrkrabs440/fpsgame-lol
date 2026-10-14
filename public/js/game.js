@@ -9,8 +9,9 @@ const WEAPONS = [
   { id: 'AWP', dmg: 95, rpm: 42, mag: 5, reserve: 20, auto: false, spread: 0.001, zoom: true },
   { id: 'DEAGLE', dmg: 42, rpm: 220, mag: 7, reserve: 35, auto: false, spread: 0.01 },
   { id: 'KNIFE', dmg: 55, rpm: 75, mag: Infinity, reserve: Infinity, melee: true, range: 2.4 },
-  { id: 'RPG', dmg: 120, rpm: 25, mag: 1, reserve: 3, auto: false, spread: 0.005, rocket: true },
+  { id: 'RPG', dmg: 120, rpm: 25, mag: 1, reserve: 33, auto: false, spread: 0.005, rocket: true },
   { id: 'TASER', dmg: 25, rpm: 150, mag: 12, reserve: 36, auto: false, spread: 0.008, stun: true, range: 15 },
+  { id: 'GATLING', dmg: 18, rpm: 1200, mag: 100, reserve: 200, auto: true, spread: 0.025, spinup: 0.5 },
 ];
 
 // 건게임 무기 순서 (마지막 나이프킬이 우승)
@@ -91,7 +92,7 @@ export class FPSGame {
     this.chatOpen = false; this.isMoving = false;
     this.shake = 0; this.streak = 0; this.streakT = 0; this.defuseP = 0; this.stepT = 0;
     this.nades = 2; this.nadeList = []; this.vy = 0; this.firstBlood = false;
-    this.rocketList = []; this.stunT = 0;
+    this.rocketList = []; this.stunT = 0; this.gatSpin = 0; this.gatLast = 0;
     this.crouch = false; this.eyeBase = 1.7; this.grounded = true;
     this.spectateIdx = 0; this.specName = '';
     this.vmLand = 0; this.vmThrow = 0; this.vmSwipe = 0; this.vmSprintK = 0;
@@ -552,6 +553,19 @@ export class FPSGame {
       add(new THREE.BoxGeometry(0.045, 0.11, 0.06), dark, 0, -0.08, 0.0, 0.2);
       add(new THREE.CylinderGeometry(0.008, 0.008, 0.06, 6), silver, -0.015, 0.01, -0.24, Math.PI / 2); // 전극
       add(new THREE.CylinderGeometry(0.008, 0.008, 0.06, 6), silver, 0.015, 0.01, -0.24, Math.PI / 2);
+    } else if (i === 9) { // 게틀링건 (회전 3총열)
+      g.children.slice().forEach(m => g.remove(m));
+      add(new THREE.BoxGeometry(0.09, 0.12, 0.35), dark, 0, 0, -0.05); // 몸통
+      add(new THREE.BoxGeometry(0.07, 0.14, 0.12), mid, 0, -0.11, -0.02); // 탄창
+      add(new THREE.BoxGeometry(0.08, 0.1, 0.18), dark, 0, -0.02, 0.2); // 모터
+      const cluster = new THREE.Group(); cluster.position.set(0, 0.01, -0.45); g.add(cluster);
+      for (let b = 0; b < 3; b++) {
+        const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.5, 8), dark);
+        bar.rotation.x = Math.PI / 2;
+        bar.position.set(Math.cos(b * 2.09) * 0.035, Math.sin(b * 2.09) * 0.035, -0.1);
+        cluster.add(bar);
+      }
+      g.userData.barrels = cluster;
     }
     g.position.set(0.0, -0.05, -0.12);
     return g;
@@ -564,7 +578,7 @@ export class FPSGame {
       new THREE.Vector3(0.0, -0.04, -0.7), new THREE.Vector3(0.0, -0.03, -0.8),
       new THREE.Vector3(0.0, -0.035, -1.15), new THREE.Vector3(0.0, -0.04, -0.42),
       new THREE.Vector3(0.0, -0.04, -0.5), new THREE.Vector3(0.0, -0.03, -1.0),
-      new THREE.Vector3(0.0, -0.03, -0.4),
+      new THREE.Vector3(0.0, -0.03, -0.4), new THREE.Vector3(0.0, -0.02, -0.85),
     ][this.wi];
     this.vmFlashMesh.position.copy(tip);
     this.flash.position.set(0.25, -0.22, -1.0);
@@ -582,6 +596,7 @@ export class FPSGame {
       if (e.code === 'KeyR') this.reload();
       if (!e.repeat && e.code === 'KeyB') this.toggleShop();
       if (!e.repeat && e.code === 'KeyG') this.throwGrenadeMine();
+      if (!e.repeat && e.code === 'Digit0') this.switchWeapon(9);
       if (e.code === 'KeyE') this.interact();
     };
     this.kd = this.onKey(true); this.ku = this.onKey(false);
@@ -733,7 +748,7 @@ export class FPSGame {
     this.vmRig.rotation.x = this.vmRecoil * 0.14 - relTilt - (this.vmSwitchT > 0 ? 0.35 * Math.sin((this.vmSwitchT / 0.28) * Math.PI) : 0) - this.vmSprintK * 0.25;
     this.vmRig.rotation.y = swipeK * 0.6;
     this.vmRig.rotation.z = Math.sin(this.vmBob * 0.5) * 0.008;
-    // 섬광 감쇠 + 랜덤 회전
+    // 섬광 감쇠 + 랜덤 회전 + 게틀링 총열 회전
     if (this.vmFlashT > 0) {
       this.vmFlashT -= dt;
       this.vmFlashMesh.visible = true;
@@ -741,6 +756,8 @@ export class FPSGame {
       const s = 0.8 + Math.random() * 0.6; this.vmFlashMesh.scale.set(s, s, 1);
       this.flash.intensity = 2.5;
     } else { this.vmFlashMesh.visible = false; this.flash.intensity = 0; }
+    const bg = this.vmGuns[this.wi] && this.vmGuns[this.wi].userData.barrels;
+    if (bg && this.firing && (this.gatSpin || 0) > 0.05) bg.rotation.z += dt * 28;
     // 조준 시 팔 모으기
     this.vmArmL.rotation.y += ((k > 0.5 ? 0.12 : 0.3) - this.vmArmL.rotation.y) * Math.min(1, dt * 8);
     this.vmArmR.rotation.y += ((k > 0.5 ? -0.1 : -0.26) - this.vmArmR.rotation.y) * Math.min(1, dt * 8);
@@ -1082,6 +1099,7 @@ export class FPSGame {
       knife: mkV(v => { vb(v, 0.04, 0.05, 0.14, darkM, 0, -0.05, 0.05); vb(v, 0.015, 0.045, 0.32, silverM, 0, -0.02, -0.2); }),
       rpg: mkV(v => { const t = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.95, 8), darkM); t.rotation.x = Math.PI / 2; t.position.set(0, 0, -0.2); v.add(t); vb(v, 0.05, 0.12, 0.08, darkM, 0, -0.1, 0.0); }),
       taser: mkV(v => { const ym = new THREE.MeshLambertMaterial({ color: 0xd8b800 }); vb(v, 0.055, 0.085, 0.24, ym, 0, 0, -0.05); vb(v, 0.045, 0.11, 0.06, darkM, 0, -0.08, 0.05); }),
+      lmg: mkV(v => { vb(v, 0.09, 0.12, 0.5, darkM, 0, 0, -0.1); vb(v, 0.07, 0.14, 0.12, darkM, 0, -0.11, 0.0); vb(v, 0.03, 0.03, 0.4, darkM, 0.03, 0.02, -0.4); vb(v, 0.03, 0.03, 0.4, darkM, -0.03, 0.02, -0.4); }),
     };
     gunMeshes.rifle.visible = true;
     const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 5),
@@ -1107,9 +1125,9 @@ export class FPSGame {
     };
   }
 
-  // 병사 손 무기 전환 (M4/AK=rifle, MP5=smg, M870=shotgun, AWP=sniper, DEAGLE=pistol, KNIFE=knife, RPG=rpg, TASER=taser)
+  // 병사 손 무기 전환 (M4/AK=rifle, MP5=smg, M870=shotgun, AWP=sniper, DEAGLE=pistol, KNIFE=knife, RPG=rpg, TASER=taser, GATLING=lmg)
   setSoldierGun(r, idx) {
-    const map = ['rifle', 'rifle', 'smg', 'shotgun', 'sniper', 'pistol', 'knife', 'rpg', 'taser'];
+    const map = ['rifle', 'rifle', 'smg', 'shotgun', 'sniper', 'pistol', 'knife', 'rpg', 'taser', 'lmg'];
     const v = map[idx] || 'rifle';
     if (r.gunIdx === idx && r.gunMeshes[v].visible) return;
     r.gunIdx = idx;
@@ -1299,6 +1317,15 @@ export class FPSGame {
     const w = WEAPONS[this.wi], a = this.ammo[this.wi];
     const interval = 60000 / w.rpm;
     if (now - this.lastShot < interval || this.reloading || !this.alive) return;
+    if (w.spinup) { // 게틀링 스핀업 0.5초
+      const dtSpin = Math.min(0.1, (now - (this.gatLast || now)) / 1000);
+      this.gatLast = now;
+      this.gatSpin = Math.min(2, (this.gatSpin || 0) + dtSpin);
+      if (this.gatSpin < w.spinup) {
+        if (now - this.lastShot > 120) { this.lastShot = now; Sfx.noise(0.05, 0.07, 900); }
+        return;
+      }
+    }
     if (w.melee) { this.lastShot = now; this.meleeAttack(w); return; }
     if (a.mag <= 0) { this.reload(); return; }
     this.lastShot = now; a.mag--;
@@ -1394,7 +1421,7 @@ export class FPSGame {
     if (performance.now() - this.lastShootEmit > 80) { this.lastShootEmit = performance.now(); this.socket.emit('player:shoot'); }
     const dir = new THREE.Vector3(); this.camera.getWorldDirection(dir);
     const from = this.camera.position.clone().addScaledVector(dir, 0.7);
-    const vel = dir.clone().multiplyScalar(46); // 버프: 탄속 28→46
+    const vel = dir.clone().multiplyScalar(70); // 탄속 46→70
     this.spawnRocket(from, vel, true);
     this.socket.emit('player:rocket', { from: { x: from.x, y: from.y, z: from.z }, vel: { x: vel.x, y: vel.y, z: vel.z } });
     this.updateHUD();
@@ -1771,7 +1798,7 @@ export class FPSGame {
       const w = WEAPONS[this.wi];
       if (w.auto) this.tryShoot(now);
       else if (!this.semiLock) { this.tryShoot(now); this.semiLock = true; setTimeout(() => this.semiLock = false, 60000 / w.rpm); }
-    }
+    } else { this.gatSpin = 0; this.gatLast = 0; }
     // 원격 보간 → 봇 이동 → 인체 애니 일괄 (이동량 기반 걷기 모션)
     for (const [, r] of this.remotes) {
       if (!r.isBot && r.alive) {
