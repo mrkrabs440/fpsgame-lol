@@ -49,22 +49,6 @@ header{display:flex;justify-content:space-between;align-items:center}
 .room .info{flex:1}.room .info b{color:#ffb300}.room .mode{font-size:12px;color:#9fb2c5}
 .room button{background:#1f7a3a;border:none;color:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;font-weight:bold}
 .room button:hover{background:#27a04d}
-.friend-panel{background:#141c26;border:1px solid #2a3a4d;border-radius:12px;padding:14px;margin-top:12px}
-.friend-add{display:flex;gap:8px;margin-bottom:10px}
-.friend-add input{margin:0}
-.friend-add button{background:#1f7a3a;border:none;color:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;font-weight:bold;white-space:nowrap}
-#friend-list{display:flex;flex-direction:column;gap:6px;max-height:240px;overflow-y:auto;font-size:13px}
-.friend-row{display:flex;gap:8px;align-items:center;background:#0f1620;border:1px solid #2a3a4d;border-radius:8px;padding:7px 10px}
-.friend-row .dot{font-size:11px}
-.friend-row .dot.on{color:#7CFC00}.friend-row .dot.off{color:#5a6a7a}
-.friend-row .nm{flex:1;font-weight:bold;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.friend-row .sub{color:#7d8ea0;font-size:12px}
-.friend-row button{background:#22303f;color:#fff;border:1px solid #3a4f66;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px;white-space:nowrap}
-.friend-row button.go{background:#1f7a3a;border:none}
-.friend-row button:disabled{opacity:.4;cursor:default}
-#friend-invite{background:rgba(0,0,0,.55);padding:10px 16px;border-radius:10px;pointer-events:auto;min-width:300px;max-width:420px}
-#friend-invite h4{color:#ffb300;margin-bottom:6px;font-size:14px}
-#invite-list{display:flex;flex-direction:column;gap:6px;max-height:150px;overflow-y:auto;font-size:13px}
 .help{margin-top:12px;font-size:12px;color:#7d8ea0}
 /* 게임 */
 #game-screen{position:relative}
@@ -106,9 +90,7 @@ header{display:flex;justify-content:space-between;align-items:center}
 #interact-tip{position:absolute;left:50%;top:60%;transform:translateX(-50%);background:#ffb300;color:#111;padding:8px 16px;border-radius:8px;font-weight:bold}
 #respawn-overlay{position:absolute;inset:0;background:rgba(150,0,0,.35);display:flex;flex-direction:column;align-items:center;justify-content:center}
 #death-by{color:#ffb300;font-weight:bold;font-size:18px;margin:6px 0;text-shadow:0 0 8px #000}
-#round-overlay{position:absolute;left:50%;top:35%;transform:translate(-50%,-50%);font-size:42px;font-weight:bold;color:#ffb300;text-shadow:0 0 20px #000;white-space:nowrap}
-#round-overlay.ct{color:#3a7bff}
-#round-overlay.t{color:#ff4655}
+#round-overlay{position:absolute;left:50%;top:35%;transform:translate(-50%,-50%);font-size:42px;font-weight:bold;color:#ffb300;text-shadow:0 0 20px #000}
 #shop,#match-end{position:absolute;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;pointer-events:auto;z-index:5}
 .shop-box,.me-box{background:#141c26;border:1px solid #ffb300;border-radius:14px;padding:24px;min-width:380px;max-width:520px;text-align:center}
 .shop-box h2 span{color:#7CFC00;font-size:14px}
@@ -121,43 +103,4 @@ header{display:flex;justify-content:space-between;align-items:center}
 #btn-tolobby{background:#22303f;color:#fff;border:1px solid #3a4f66;padding:11px;width:100%;border-radius:8px;cursor:pointer;margin-top:6px}
 #click-to-play{position:absolute;inset:0;background:rgba(0,0,0,.75);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer}
 #click-to-play button{pointer-events:auto;padding:10px 20px;border-radius:8px;border:none;background:#c0392b;color:#fff;cursor:pointer}
-#quick-settings{display:flex;gap:16px;align-items:center;background:rgba(0,0,0,.55);padding:10px 16px;border-radius:10px;pointer-events:auto;font-size:13px}
-#quick-settings label{display:flex;gap:8px;align-items:center;color:#e8edf2}
-#quick-settings input[type=range]{width:120px;margin:0}
-#quick-settings select{width:auto;margin:0;padding:6px}
-#quick-settings input[type=checkbox]{width:auto;margin:0}
 @media(max-width:800px){.mode-cards,.lobby-main{grid-template-columns:1fr}}
-:root{--val-red:#ff4655;--val-dark:#0f1923;--val-paper:#ece8e1;--val-teal:#00e5a0;--val-blue:#3a7bff}
-#topbar{background:rgba(15,25,35,.82);border:1px solid rgba(255,70,85,.35);border-top:3px solid var(--val-red);padding:8px 22px;min-width:340px}
-#match-info{color:var(--val-paper);letter-spacing:.5px}
-#round-pips{font-size:15px;letter-spacing:4px;margin-top:2px}
-#round-pips .ct{color:var(--val-blue)}#round-pips .t{color:var(--val-red)}#round-pips .off{color:#3a4a5a}
-#killfeed div{background:rgba(15,25,35,.85);border-left:3px solid var(--val-red);border-radius:3px;font-weight:bold}
-#crosshair{position:absolute;left:50%;top:50%;width:0;height:0;--gap:6px;--xh:#00e5a0;font-size:0;color:transparent;text-shadow:none;transform:translate(-50%,-50%)}
-#crosshair .chl{position:absolute;background:var(--xh);box-shadow:0 0 2px #000}
-#crosshair .t{left:-1px;top:calc(-6px - var(--gap));width:2px;height:6px}
-#crosshair .b{left:-1px;top:var(--gap);width:2px;height:6px}
-#crosshair .l{top:-1px;left:calc(-6px - var(--gap));height:2px;width:6px}
-#crosshair .r{top:-1px;left:var(--gap);height:2px;width:6px}
-#crosshair .cdot{position:absolute;left:-1px;top:-1px;width:2px;height:2px;background:var(--xh)}
-#hitmarker{text-shadow:0 0 6px #000;font-weight:bold}
-#dmg-float{position:absolute;left:50%;top:50%;pointer-events:none}
-#dmg-float span{position:absolute;transform:translate(-50%,-50%);font-weight:bold;font-size:16px;color:var(--val-paper);text-shadow:0 0 4px #000;animation:dmgup .6s ease-out forwards}
-#dmg-float span.hs{color:#ffd23f;font-size:19px}
-@keyframes dmgup{to{transform:translate(calc(-50% + var(--dx,10px)),-70px);opacity:0}}
-#defuse-bar{position:absolute;left:50%;top:56%;transform:translateX(-50%);width:220px;height:8px;background:rgba(0,0,0,.6);border:1px solid var(--val-teal);border-radius:4px;overflow:hidden}
-#defuse-fill{height:100%;width:0;background:var(--val-teal)}
-#weapon-name{color:var(--val-red);letter-spacing:1px}
-#ammo{color:var(--val-paper)}
-.shop-box{border-color:var(--val-red);border-top:4px solid var(--val-red)}
-.shop-box h2{color:var(--val-paper);letter-spacing:1px}
-.shop-item:hover,.shop-item.active{border-color:var(--val-red)}
-#match-end .me-box{border-color:var(--val-red);border-top:4px solid var(--val-red)}
-#me-title{color:var(--val-paper)}
-button.primary{background:var(--val-red)}
-button.primary:hover{background:#ff6b78}
-.tab.active{background:var(--val-red)}
-.auth-box h1 span{color:var(--val-red)}
-.room .info b{color:var(--val-paper)}
-#my-rating{background:#2a1215;color:var(--val-red)}
-#quick-settings{flex-wrap:wrap;justify-content:center;max-width:640px}

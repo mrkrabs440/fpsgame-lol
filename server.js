@@ -41,19 +41,9 @@ async function storeInit() {
       await pool.query('CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value JSONB)');
       const { rows } = await pool.query('SELECT key, value FROM kv');
       const m = Object.fromEntries(rows.map(r => [r.key, r.value]));
-      const asArr = (v) => {
-        if (Array.isArray(v)) return v;
-        if (typeof v === 'string') { try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch { return []; } }
-        return [];
-      };
-      const asObj = (v) => {
-        if (v && typeof v === 'object' && !Array.isArray(v)) return v;
-        if (typeof v === 'string') { try { const p = JSON.parse(v); return (p && typeof p === 'object' && !Array.isArray(p)) ? p : {}; } catch { return {}; } }
-        return {};
-      };
-      userCache = asArr(m.users);
-      sessCacheObj = asObj(m.sessions);
-      roomsCacheArr = asArr(m.rooms);
+      userCache = Array.isArray(m.users) ? m.users : [];
+      sessCacheObj = m.sessions || {};
+      roomsCacheArr = Array.isArray(m.rooms) ? m.rooms : [];
       pgOk = true;
       console.log('영속 저장소: Postgres 사용');
     } catch (e) { console.error('PG 접속 실패, 파일 모드로 대체:', e.message); }
@@ -77,11 +67,7 @@ async function storeFlush() {
     const up = (k, v) => pool.query('INSERT INTO kv(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value', [k, v]);
     if (storeDirty.users) { await up('users', JSON.stringify(userCache)); storeDirty.users = false; }
     if (storeDirty.sessions) { await up('sessions', JSON.stringify(sessCacheObj)); storeDirty.sessions = false; }
-    if (storeDirty.rooms) {
-      // markRoomsDirty만 찍힌 경우 캐시가 구버전일 수 있어 flush 직전 재생성
-      roomsCacheArr = [...rooms.values()].map(r => ({ ...r, order: [] }));
-      await up('rooms', JSON.stringify(roomsCacheArr)); storeDirty.rooms = false;
-    }
+    if (storeDirty.rooms) { await up('rooms', JSON.stringify(roomsCacheArr)); storeDirty.rooms = false; }
   } catch (e) { console.error('store flush 실패:', e.message); }
 }
 setInterval(storeFlush, 10000);
@@ -116,7 +102,6 @@ function ensureStats(u) {
   let touched = false;
   const defaults = { rating: 1000, wins: 0, losses: 0, kills: 0, deaths: 0, mvp: 0, matches: 0 };
   for (const [k, v] of Object.entries(defaults)) if (u[k] === undefined) { u[k] = v; touched = true; }
-  if (!Array.isArray(u.friends)) { u.friends = []; touched = true; }
   return touched;
 }
 function getTier(rating) {
@@ -211,7 +196,7 @@ function roomPlayersById(roomId) {
   if (!room) return [];
   return room.order.map(sid => {
     const pl = players.get(sid);
-    return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw, pitch: pl.pitch || 0, wi: pl.wi || 0, fy: pl.fy || 0, crouch: !!pl.crouch, messi: isMessiId(pl.userId) } : null;
+    return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw, pitch: pl.pitch || 0, wi: pl.wi || 0, fy: pl.fy || 0, crouch: !!pl.crouch } : null;
   }).filter(Boolean);
 }
 
@@ -245,64 +230,11 @@ app.patch('/api/nickname', authMiddleware, (req, res) => {
   res.json({ ok: true, nickname: nn, message: `닉네임이 ${nn}(으)로 변경되었습니다.` });
 });
 
-// ---------- 특별 코스메틱 (계정 기준, 성능 무관) ----------
-const MESSI_IDS = ['Tlqkfsusemfdk69'];
-function isMessiId(uid) {
-  const u = loadUsers().find(x => x.id === uid);
-  return !!u && (MESSI_IDS.includes(u.username) || MESSI_IDS.includes(u.nickname));
-}
-
-// ---------- 친구 API (userId 기반, online/offline 표시) ----------
-function friendEntry(u) {
-  let room = null, online = false;
-  for (const pl of players.values()) {
-    if (pl.userId !== u.id) continue;
-    online = true;
-    if (pl.roomId && rooms.get(pl.roomId)) {
-      const r = rooms.get(pl.roomId);
-      room = { id: r.id, name: r.name, mode: r.mode, playerCount: r.order.length, maxPlayers: r.maxPlayers };
-      break;
-    }
-  }
-  return { userId: u.id, nickname: u.nickname, rating: u.rating || 1000, tier: getTier(u.rating || 1000), online, room };
-}
-
-app.get('/api/friends', authMiddleware, (req, res) => {
-  const users = loadUsers();
-  const list = ((req.user.friends || []).map(fid => users.find(u => u.id === fid)).filter(Boolean)).map(friendEntry);
-  res.json({ ok: true, friends: list });
-});
-
-app.post('/api/friends', authMiddleware, (req, res) => {
-  const nn = String((req.body || {}).nickname || '').trim();
-  if (!nn) return res.status(400).json({ error: '닉네임을 입력하세요.' });
-  const users = loadUsers();
-  const me = users.find(u => u.id === req.user.id);
-  const target = users.find(u => u.nickname === nn);
-  if (!target) return res.status(404).json({ error: '없는 닉네임입니다.' });
-  if (target.id === me.id) return res.status(400).json({ error: '자신은 추가할 수 없습니다.' });
-  me.friends = Array.isArray(me.friends) ? me.friends : [];
-  if (me.friends.includes(target.id)) return res.status(409).json({ error: '이미 친구입니다.' });
-  if (me.friends.length >= 50) return res.status(400).json({ error: '친구는 50명까지 추가할 수 있습니다.' });
-  me.friends.push(target.id);
-  saveUsers(users);
-  res.json({ ok: true, friend: friendEntry(target) });
-});
-
-app.delete('/api/friends/:uid', authMiddleware, (req, res) => {
-  const users = loadUsers();
-  const me = users.find(u => u.id === req.user.id);
-  if (!me) return res.status(401).json({ error: '세션 만료' });
-  me.friends = (me.friends || []).filter(fid => fid !== req.params.uid);
-  saveUsers(users);
-  res.json({ ok: true });
-});
-
 // ---------- Room API ----------
 const MODES = {
   conquest: { name: '정복전 (배틀필드식)', desc: 'A/B/C 거점 점령, 티켓 150', defaultMap: 'desert_storm', maxPlayers: 16 },
   operation: { name: '블랙호크 작전 (델타포스식)', desc: '광활한 밸리, 목표물 파괴 + 생존', defaultMap: 'delta_valley', maxPlayers: 12 },
-    defuse: { name: '폭탄 해체전 (발로란트식)', desc: '5라운드 선승제, 바이페이즈+진영교체, 스파이크 설치/해체', defaultMap: 'cs_dust', maxPlayers: 10 },
+  defuse: { name: '폭탄 해체전 (카스식)', desc: '5라운드, 폭탄 설치/해체, 경제 시스템', defaultMap: 'cs_dust', maxPlayers: 10 },
   tdm: { name: '팀 데스매치', desc: '50킬 선취, 리스폰 빠름', defaultMap: 'desert_storm', maxPlayers: 16 },
   ffa: { name: '개인 데스매치 (FFA)', desc: '20킬 또는 5분 최고킬 우승', defaultMap: 'cs_dust', maxPlayers: 12 },
   gungame: { name: '건게임', desc: '킬마다 무기 변경, 나이프킬 완주 우승', defaultMap: 'cs_dust', maxPlayers: 12 }
@@ -374,7 +306,7 @@ function initRoomState(mode) {
   if (mode === 'tdm') return { score: {}, target: 50 };
   if (mode === 'ffa') return { scores: {}, target: 20, timeLeft: 300 };
   if (mode === 'gungame') return { target: 9 };
-  return { round: 1, maxRounds: 5, score: { CT: 0, T: 0 }, bomb: { planted: false, site: null, timeLeft: 0, exploded: false }, phase: 'buy', buyTimer: 15, roundTimer: 100, swapped: false };
+  return { round: 1, maxRounds: 5, score: { CT: 0, T: 0 }, bomb: { planted: false, site: null, timeLeft: 0, exploded: false }, phase: 'buy', roundTimer: 100 };
 }
 
 function broadcastLobby() {
@@ -474,38 +406,15 @@ setInterval(() => {
         io.to('room_' + room.id).emit('game:tick', { state: room.state });
       }
     }
-    if (room.mode === 'defuse' && !room._elimDone) {
-      const st = room.state;
-      if (st.phase === 'buy') {
-        st.buyTimer = Math.max(0, (st.buyTimer ?? 15) - 1);
-        if (st.buyTimer <= 0) {
-          st.phase = 'combat'; st.roundTimer = 100;
-          io.to('room_' + room.id).emit('round:start', { state: st });
-        } else {
-          io.to('room_' + room.id).emit('game:tick', { state: st });
-        }
-      } else if (st.bomb.planted) {
-        st.bomb.timeLeft -= 1;
-        if (st.bomb.timeLeft <= 0 && !st.bomb.exploded) {
-          st.bomb.exploded = true;
-          st.score.T++;
-          room._elimDone = true;
-          io.to('room_' + room.id).emit('bomb:exploded', { state: st });
-          setTimeout(() => nextRound(room), 3000);
-        } else {
-          io.to('room_' + room.id).emit('game:tick', { state: st });
-        }
+    if (room.mode === 'defuse' && room.state.bomb.planted) {
+      room.state.bomb.timeLeft -= 1;
+      if (room.state.bomb.timeLeft <= 0 && !room.state.bomb.exploded) {
+        room.state.bomb.exploded = true;
+        room.state.score.T++;
+        io.to('room_' + room.id).emit('bomb:exploded', { state: room.state });
+        setTimeout(() => nextRound(room), 3000);
       } else {
-        st.roundTimer -= 1;
-        if (st.roundTimer <= 0) {
-          st.score.CT++;
-          room._elimDone = true;
-          io.to('room_' + room.id).emit('round:end', { winner: 'CT', reason: '시간 종료 - 수비 성공', state: st });
-          io.to('room_' + room.id).emit('chat:msg', { sys: true, text: `⏱ 시간 종료! CT 수비 성공 (${st.score.CT}:${st.score.T})` });
-          setTimeout(() => nextRound(room), 3000);
-        } else {
-          io.to('room_' + room.id).emit('game:tick', { state: st });
-        }
+        io.to('room_' + room.id).emit('game:tick', { state: room.state });
       }
     }
     if (room.mode === 'ffa') { // 개인전 5분 타이머
@@ -529,27 +438,15 @@ setInterval(() => {
 function nextRound(room) {
   if (!rooms.get(room.id)) return;
   room._elimDone = false;
-  const need = Math.floor(room.state.maxRounds / 2) + 1;
-  if (room.state.score.CT >= need || room.state.score.T >= need || room.state.round >= room.state.maxRounds) {
+  if (room.state.round >= room.state.maxRounds) {
     const winner = room.state.score.CT === room.state.score.T ? 'draw' : (room.state.score.CT > room.state.score.T ? 'CT' : 'T');
     endMatch(room, winner, room.ranked ? '[경쟁] 전 라운드 종료' : '전 라운드 종료');
-    return;
+  } else {
+    room.state.round++;
+    room.state.bomb = { planted: false, site: null, timeLeft: 0, exploded: false };
+    room.state.phase = 'buy';
+    room.state.roundTimer = 100;
   }
-  room.state.round++;
-  if (room.state.round === Math.ceil(room.state.maxRounds / 2) + 1 && !room.state.swapped) {
-    room.state.swapped = true;
-    for (const sid of room.order) {
-      const pl = players.get(sid);
-      if (pl) pl.team = pl.team === 'CT' ? 'T' : pl.team === 'T' ? 'CT' : pl.team;
-    }
-    io.to('room_' + room.id).emit('team:swap', { state: room.state });
-    io.to('room_' + room.id).emit('room:players', roomPlayers(room.id));
-    io.to('room_' + room.id).emit('chat:msg', { sys: true, text: '🔄 후반전! 진영 교체 (CT ↔ T)' });
-  }
-  room.state.bomb = { planted: false, site: null, timeLeft: 0, exploded: false };
-  room.state.phase = 'buy';
-  room.state.buyTimer = 15;
-  room.state.roundTimer = 100;
   // 다음 라운드 전원 부활 (서버/클라 동기화)
   for (const sid of room.order) {
     const pl = players.get(sid);
@@ -607,7 +504,7 @@ io.on('connection', (socket) => {
     if (room.order.includes(socket.id)) {
       // 이미 입장 상태면 상태만 재전송 (중복입장 방지)
       socket.join('room_' + roomId);
-      return socket.emit('room:joined', { room: publicRoom(room), team: p.team, state: room.state, you: p.nickname, youMessi: isMessiId(p.userId) });
+      return socket.emit('room:joined', { room: publicRoom(room), team: p.team, state: room.state, you: p.nickname });
     }
     if (room.order.length >= room.maxPlayers) return socket.emit('error:msg', '방이 가득 찼습니다.');
     // 기존 방 떠나기
@@ -617,7 +514,7 @@ io.on('connection', (socket) => {
     p.hp = 100; p.alive = true;
     room.order.push(socket.id);
     socket.join('room_' + roomId);
-    socket.emit('room:joined', { room: publicRoom(room), team: p.team, state: room.state, you: p.nickname, youMessi: isMessiId(p.userId) });
+    socket.emit('room:joined', { room: publicRoom(room), team: p.team, state: room.state, you: p.nickname });
     io.to('room_' + roomId).emit('room:players', roomPlayers(roomId));
     io.to('room_' + roomId).emit('chat:msg', { sys: true, text: `▶ ${p.nickname} (${p.team}) 입장` });
     broadcastLobby();
@@ -644,37 +541,16 @@ io.on('connection', (socket) => {
     if (!room) return [];
     return room.order.map(sid => {
       const pl = players.get(sid);
-      return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw, pitch: pl.pitch || 0, wi: pl.wi || 0, fy: pl.fy || 0, crouch: !!pl.crouch, messi: isMessiId(pl.userId) } : null;
+      return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw, pitch: pl.pitch || 0, wi: pl.wi || 0, fy: pl.fy || 0, crouch: !!pl.crouch } : null;
     }).filter(Boolean);
-  }
-
-  const lastMsgAt = new Map();
-  function allow(key, ms) {
-    const now = Date.now();
-    const prev = lastMsgAt.get(key) || 0;
-    if (now - prev < ms) return false;
-    lastMsgAt.set(key, now);
-    return true;
-  }
-  function num(v, fb) { const n = Number(v); return Number.isFinite(n) ? n : fb; }
-  function clampPos(pos) {
-    return {
-      x: Math.max(-200, Math.min(200, num(pos.x, 0))),
-      y: Math.max(-50, Math.min(100, num(pos.y, 1.7))),
-      z: Math.max(-200, Math.min(200, num(pos.z, 0))),
-    };
   }
 
   // 위치 동기화 (20Hz로 클라이언트가 전송)
   socket.on('player:state', (d) => {
     const p = players.get(socket.id);
     if (!p || !p.roomId || !d || !d.pos) return;
-    if (!allow(socket.id + ':state', 30)) return;
-    p.pos = clampPos(d.pos);
-    p.yaw = num(d.yaw, 0); p.pitch = Math.max(-1.6, Math.min(1.6, num(d.pitch, 0)));
-    p.wi = Math.max(0, Math.min(9, parseInt(d.wi) || 0));
-    p.fy = Math.max(-50, Math.min(100, num(d.fy, 0))); p.crouch = !!d.crouch;
-    socket.to('room_' + p.roomId).emit('player:move', { nickname: p.nickname, team: p.team, pos: p.pos, yaw: p.yaw, hp: p.hp, alive: p.alive, pitch: p.pitch, wi: p.wi, fy: p.fy, crouch: p.crouch, messi: isMessiId(p.userId) });
+    p.pos = d.pos; p.yaw = d.yaw; p.pitch = d.pitch || 0; p.wi = d.wi || 0; p.fy = d.fy || 0; p.crouch = !!d.crouch;
+    socket.to('room_' + p.roomId).emit('player:move', { nickname: p.nickname, team: p.team, pos: d.pos, yaw: d.yaw, hp: p.hp, alive: p.alive, pitch: p.pitch, wi: p.wi, fy: p.fy, crouch: p.crouch });
   });
 
   // 피해 적용 공용 (총탄·수류탄): HP 차감→사망/데미지 브로드캐스트→리스폰
@@ -691,15 +567,14 @@ io.on('connection', (socket) => {
         killerTeam: shooter.team, victimTeam: targetEntry.team
       });
       io.to('room_' + room.id).emit('room:players', roomPlayers(room.id));
-      // 리스폰 (defuse 모드는 라운드 종료까지 리스폰 없음, 데스매치 계열은 1.5초)
+      // 2초 후 리스폰 (defuse 모드는 라운드 종료까지 리스폰 없음)
       if (room.mode !== 'defuse') {
-        const delay = (room.mode === 'tdm' || room.mode === 'ffa' || room.mode === 'gungame') ? 1500 : 2000;
         setTimeout(() => {
           if (!rooms.get(room.id)) return;
           targetEntry.hp = 100; targetEntry.alive = true;
           io.to('room_' + room.id).emit('player:respawned', { nickname: targetEntry.nickname });
           io.to('room_' + room.id).emit('room:players', roomPlayers(room.id));
-        }, delay);
+        }, 2000);
       }
     } else {
       io.to('room_' + room.id).emit('player:damaged', { target: targetEntry.nickname, hp: targetEntry.hp, attacker: shooter.nickname, stun });
@@ -729,19 +604,14 @@ io.on('connection', (socket) => {
   socket.on('player:hit', (d) => {
     const { target, damage, weapon, stun } = d || {};
     if (!target || !damage) return;
-    if (!allow(socket.id + ':hit', 60)) return;
     const shooter = players.get(socket.id);
-    if (!shooter || !shooter.roomId || !shooter.alive) return;
+    if (!shooter || !shooter.roomId) return;
     const room = rooms.get(shooter.roomId);
     if (!room) return;
     const targetEntry = [...players.values()].find(pl => pl.roomId === shooter.roomId && pl.nickname === target && pl.alive);
     if (!targetEntry) return;
-    if (targetEntry.team === shooter.team) return;
-    const dmg = Math.max(1, Math.min(200, Math.round(Number(damage) || 0)));
-    if (!dmg) return;
-    const dx = targetEntry.pos.x - shooter.pos.x, dy = (targetEntry.pos.y || 1.7) - (shooter.pos.y || 1.7), dz = targetEntry.pos.z - shooter.pos.z;
-    if (Math.sqrt(dx * dx + dy * dy + dz * dz) > 220) return;
-    strike(room, shooter, targetEntry, dmg, String(weapon || '').slice(0, 24), !!stun);
+    if (targetEntry.team === shooter.team) return; // 아군 오사 방지
+    strike(room, shooter, targetEntry, damage, weapon, !!stun);
   });
 
   // 봇 공격 판정 (클라 봇이 원격 플레이어를 맞췄을 때, 킬러=BOT 이름)
@@ -766,8 +636,6 @@ io.on('connection', (socket) => {
   socket.on('player:blast', (d) => {
     const shooter = players.get(socket.id);
     if (!shooter || !shooter.roomId || !d || !d.pos) return;
-    if (!shooter.alive) return;
-    if (!allow(socket.id + ':blast', 400)) return;
     const room = rooms.get(shooter.roomId);
     if (!room) return;
     const radius = Math.min(Math.max(d.radius || 9, 1), 14);
@@ -803,14 +671,11 @@ io.on('connection', (socket) => {
   socket.on('objective:damage', (d) => {
     const amount = d && d.amount;
     if (!amount) return;
-    if (!allow(socket.id + ':obj', 200)) return;
     const p = players.get(socket.id);
-    if (!p || !p.roomId || !p.alive) return;
+    if (!p || !p.roomId) return;
     const room = rooms.get(p.roomId);
     if (!room || room.mode !== 'operation') return;
-    const amt = Math.max(1, Math.min(300, Math.round(Number(amount) || 0)));
-    if (!amt) return;
-    room.state.objectiveHp = Math.max(0, room.state.objectiveHp - amt);
+    room.state.objectiveHp = Math.max(0, room.state.objectiveHp - amount);
     io.to('room_' + room.id).emit('game:tick', { state: room.state });
     if (room.state.objectiveHp <= 0 && !room.state.targetDestroyed) {
       room.state.targetDestroyed = true;
@@ -825,7 +690,7 @@ io.on('connection', (socket) => {
     if (!p || !p.roomId) return;
     const room = rooms.get(p.roomId);
     if (!room || room.mode !== 'defuse' || p.team !== 'T') return;
-    if (room.state.phase !== 'combat' || room.state.bomb.planted) return;
+    if (room.state.bomb.planted) return;
     room.state.bomb = { planted: true, site, timeLeft: 40, exploded: false };
     room.state.phase = 'planted';
     io.to('room_' + room.id).emit('bomb:planted', { by: p.nickname, site, state: room.state });
@@ -850,33 +715,9 @@ io.on('connection', (socket) => {
     socket.to('room_' + p.roomId).emit('player:shot', { nickname: p.nickname });
   });
 
-  socket.on('friend:invite', (d) => {
-    const me = players.get(socket.id);
-    if (!me) return;
-    if (!me.roomId || !rooms.get(me.roomId)) return socket.emit('friend:invite:result', { ok: false, error: '방에 입장한 상태에서만 초대할 수 있습니다.' });
-    if (!allow(socket.id + ':invite', 5000)) return;
-    const toNick = String((d && d.to) || '').trim().slice(0, 12);
-    if (!toNick || toNick === me.nickname) return;
-    const users = loadUsers();
-    const meUser = users.find(u => u.id === me.userId);
-    const target = users.find(u => u.nickname === toNick);
-    if (!target) return socket.emit('friend:invite:result', { ok: false, error: '없는 닉네임입니다.' });
-    if (!meUser || !(meUser.friends || []).includes(target.id)) return socket.emit('friend:invite:result', { ok: false, error: '친구 목록에 있는 유저만 초대할 수 있습니다.' });
-    const room = rooms.get(me.roomId);
-    let sent = 0;
-    for (const [sid, pl] of players) {
-      if (pl.userId === target.id && io.sockets.sockets.get(sid)) {
-        io.to(sid).emit('friend:invited', { from: me.nickname, roomId: room.id, roomName: room.name });
-        sent++;
-      }
-    }
-    socket.emit('friend:invite:result', sent ? { ok: true } : { ok: false, error: '상대가 오프라인입니다.' });
-  });
-
   socket.on('chat:msg', (d) => {
     const p = players.get(socket.id);
     if (!p || !p.roomId || !d) return;
-    if (!allow(socket.id + ':chat', 400)) return;
     let text = String(d.text || '').slice(0, 120);
     if (!text) return;
     io.to('room_' + p.roomId).emit('chat:msg', { nickname: p.nickname, team: p.team, text });
@@ -885,7 +726,6 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     leaveRoom(socket);
     players.delete(socket.id);
-    for (const k of [...lastMsgAt.keys()]) if (k.startsWith(socket.id + ':')) lastMsgAt.delete(k);
   });
 });
 

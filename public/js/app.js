@@ -72,35 +72,7 @@ async function enterLobby() {
   authed = false;
   if (socket.connected) socket.emit('auth', { token });
   else socket.once('connect', () => socket.emit('auth', { token }));
-  loadModes(); loadRooms(); loadMe(); loadRankings(); loadFriends();
-}
-
-let lastFriendsLoad = 0;
-async function loadFriends() {
-  try {
-    const r = await fetch('/api/friends', { headers: { Authorization: 'Bearer ' + token } });
-    const j = await r.json();
-    if (j.ok) { lastFriendsLoad = Date.now(); renderFriends(j.friends || []); }
-  } catch (e) { $('friend-list').innerHTML = '친구 목록 로드 실패'; }
-}
-function renderFriends(list) {
-  if (!list.length) { $('friend-list').innerHTML = '<p style="color:#7d8ea0">친구가 없습니다. 닉네임으로 추가해보세요!</p>'; return; }
-  const on = list.filter(f => f.online), off = list.filter(f => !f.online);
-  const row = (f) => {
-    const roomTxt = f.room ? `${escapeHtml(f.room.name)} (${f.room.playerCount}/${f.room.maxPlayers})` : '로비';
-    const full = f.room && f.room.playerCount >= f.room.maxPlayers;
-    const goBtn = f.room && !full ? `<button class="go" data-frjoin="${f.room.id}">따라가기</button>` : (f.room && full ? `<button disabled>만석</button>` : '');
-    return `<div class="friend-row"><span class="dot ${f.online ? 'on' : 'off'}">●</span><span class="nm">${escapeHtml(f.nickname)}</span><span class="sub">${f.online ? roomTxt : '오프라인'}</span>${goBtn}<button data-frdel="${f.userId}">삭제</button></div>`;
-  };
-  $('friend-list').innerHTML = [...on, ...off].map(row).join('');
-  document.querySelectorAll('[data-frjoin]').forEach(b => b.onclick = () => joinRoom(b.dataset.frjoin));
-  document.querySelectorAll('[data-frdel]').forEach(b => b.onclick = async () => {
-    if (!confirm('친구를 삭제할까요?')) return;
-    const r = await fetch('/api/friends/' + b.dataset.frdel, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
-    const j = await r.json();
-    if (!j.ok) return alert(j.error || '삭제 실패');
-    loadFriends();
-  });
+  loadModes(); loadRooms(); loadMe(); loadRankings();
 }
 
 async function loadMe() {
@@ -139,18 +111,8 @@ function renderRooms(rooms) {
 }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
-$('btn-refresh').onclick = () => { loadRooms(); loadRankings(); loadMe(); loadFriends(); };
+$('btn-refresh').onclick = () => { loadRooms(); loadRankings(); loadMe(); };
 $('btn-rank-refresh').onclick = () => loadRankings();
-$('btn-friend-refresh').onclick = () => loadFriends();
-$('btn-friend-add').onclick = async () => {
-  const nn = $('friend-name').value.trim();
-  if (!nn) return;
-  const r = await fetch('/api/friends', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ nickname: nn }) });
-  const j = await r.json();
-  if (!j.ok) return alert(j.error || '추가 실패');
-  $('friend-name').value = '';
-  loadFriends();
-};
 $('btn-create').onclick = () => $('create-panel').classList.toggle('hidden');
 $('btn-quick').onclick = async () => {
   const r = await fetch('/api/competitive/quick', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ mode: 'defuse' }) });
@@ -186,18 +148,7 @@ function doJoin(roomId) {
 }
 
 // ---------- 소켓 ----------
-socket.on('lobby:update', (d) => {
-  if ($('lobby-screen').classList.contains('hidden')) return;
-  renderRooms(d.rooms);
-  if (Date.now() - lastFriendsLoad > 10000) loadFriends();
-});
-socket.on('friend:invited', (d) => {
-  if (!d || !d.roomId) return;
-  if (confirm(`👥 ${d.from}님이 [${d.roomName}] 방에 초대했습니다. 참가할까요?`)) {
-    if (game) { try { game.dispose(); } catch (e) {} game = null; }
-    joinRoom(d.roomId);
-  }
-});
+socket.on('lobby:update', (d) => { if (!$('lobby-screen').classList.contains('hidden')) renderRooms(d.rooms); });
 socket.on('error:msg', (t) => alert(t));
 socket.on('auth:fail', () => { localStorage.removeItem('fps_token'); location.reload(); });
 
@@ -208,7 +159,7 @@ socket.on('room:joined', (d) => {
     $('auth-screen').classList.add('hidden');
     $('game-screen').classList.remove('hidden');
     if (game) { try { game.dispose(); } catch (e) {} }
-    game = new FPSGame({ canvas: $('game-canvas'), socket, room: currentRoom, team: myTeam, nick: myNick, state: d.state, messi: !!d.youMessi });
+    game = new FPSGame({ canvas: $('game-canvas'), socket, room: currentRoom, team: myTeam, nick: myNick, state: d.state });
     game.start();
   } catch (e) {
     console.error(e);
