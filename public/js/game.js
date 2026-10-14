@@ -104,7 +104,7 @@ export class FPSGame {
   }
 
   loadSettings() {
-    let s = { sensitivity: 1.0, graphics: 'medium', shake: true };
+    let s = { sensitivity: 1.0, graphics: 'medium', shake: true, xhColor: '#00e5a0', xhGap: 6, xhDot: true };
     try {
       const raw = localStorage.getItem('fps_settings');
       if (raw) s = { ...s, ...JSON.parse(raw) };
@@ -112,7 +112,17 @@ export class FPSGame {
     if (!(s.sensitivity >= 0.2 && s.sensitivity <= 3)) s.sensitivity = 1.0;
     if (!['low', 'medium', 'high'].includes(s.graphics)) s.graphics = 'medium';
     s.shake = s.shake !== false;
+    if (typeof s.xhColor !== 'string') s.xhColor = '#00e5a0';
+    s.xhGap = Math.max(2, Math.min(16, Number(s.xhGap) || 6));
+    s.xhDot = s.xhDot !== false;
     return s;
+  }
+  applyCrosshair() {
+    const ch = document.getElementById('crosshair');
+    if (!ch) return;
+    ch.style.setProperty('--xh', this.settings.xhColor);
+    const dot = ch.querySelector('.cdot');
+    if (dot) dot.style.display = this.settings.xhDot ? 'block' : 'none';
   }
   saveSettings() {
     try { localStorage.setItem('fps_settings', JSON.stringify(this.settings)); } catch {}
@@ -1060,22 +1070,26 @@ export class FPSGame {
       this.bombPlantedPos = site ? site.pos.clone() : this.pos.clone();
       this.feed(`💣 ${d.by}이(가) ${d.site}에 폭탄 설치! (40초)`);
       Sfx.beep();
-      // 폭탄 모델
+      // 스파이크형 폭탄 모델 (다크 베이스 + 레드 크리스탈)
       if (this.bombMesh) this.scene.remove(this.bombMesh);
-      this.bombMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.3), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
-      this.bombMesh.position.copy(this.bombPlantedPos).setY(0.5); this.scene.add(this.bombMesh);
+      this.bombMesh = new THREE.Group();
+      const spikeBase = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.25, 0.4), new THREE.MeshLambertMaterial({ color: 0x1a1a1e }));
+      spikeBase.position.y = 0.12; this.bombMesh.add(spikeBase);
+      const spikeTip = new THREE.Mesh(new THREE.OctahedronGeometry(0.22), new THREE.MeshBasicMaterial({ color: 0xff4655 }));
+      spikeTip.position.y = 0.5; this.bombMesh.add(spikeTip);
+      this.bombMesh.position.copy(this.bombPlantedPos); this.scene.add(this.bombMesh);
       // 폭탄 삐 소리 (10초 간격... 매초는 시끄러우니 5회)
       for (let i = 1; i <= 5; i++) setTimeout(() => Sfx.beep(), i * 1000);
       this.updateMatchInfo();
     });
     s.on('bomb:defused', (d) => {
       this.serverState = d.state; this.bombPlantedPos = null; this.defuseP = 0;
-      if (this.bombMesh) { this.scene.remove(this.bombMesh); this.bombMesh = null; }
+      if (this.bombMesh) { this.scene.remove(this.bombMesh); this.bombMesh.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); this.bombMesh = null; }
       this.feed(`🛡 ${d.by} 해체 성공! CT +1`); this.updateMatchInfo(); Sfx.capture();
     });
     s.on('bomb:exploded', (d) => {
       this.serverState = d.state; this.bombPlantedPos = null; this.defuseP = 0;
-      if (this.bombMesh) { this.scene.remove(this.bombMesh); this.bombMesh = null; }
+      if (this.bombMesh) { this.scene.remove(this.bombMesh); this.bombMesh.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); this.bombMesh = null; }
       this.feed(`💥 폭탄 폭발! T +1`); this.updateMatchInfo(); Sfx.explode();
       this.shake = Math.min(1, this.shake + 0.5);
     });
@@ -1421,9 +1435,10 @@ export class FPSGame {
     const base = new THREE.Vector3(); this.camera.getWorldDirection(base);
     const origin = this.camera.position.clone();
     const n = w.pellets || 1;
+    const moveMul = !this.grounded ? 2.2 : this.isMoving ? 1.8 : 1;
     for (let i = 0; i < n; i++) {
       const dir = base.clone();
-      const sp = w.spread * (w.pellets ? 2.4 : 2) * (this.crouch ? 0.7 : 1);
+      const sp = w.spread * (w.pellets ? 2.4 : 2) * (this.crouch ? 0.7 : 1) * moveMul;
       dir.x += (Math.random() - 0.5) * sp; dir.y += (Math.random() - 0.5) * sp; dir.normalize();
       this.scanShot(origin, dir, w);
     }
@@ -1469,16 +1484,17 @@ export class FPSGame {
     }
     if (best) {
       const dmgMul = (bestHead && !w.stun) ? 2 : 1;
+      const dealt = w.dmg * dmgMul;
       const fxCol = w.stun ? 0x66eeff : 0xcc2222;
-      this.showHit(bestHead && !w.stun); if (w.stun) Sfx.zap(); else if (bestHead) Sfx.headshot(); else Sfx.hit();
+      this.showHit(bestHead && !w.stun, dealt); if (w.stun) Sfx.zap(); else if (bestHead) Sfx.headshot(); else Sfx.hit();
       const impact = origin.clone().addScaledVector(dir, bestDist);
       this.spawnTracer(origin, impact, w.stun ? 0x66eeff : undefined); this.spawnSparks(impact, fxCol, 7);
       const r = this.remotes.get(best);
       if (r.isBot) { // 봇 데미지 로컬 처리
         if (w.stun) r.slowT = 2; // 감전 슬로우
-        this.damageBot(best, r, w.dmg * dmgMul, `${this.nick} [${w.id}${w.stun ? '⚡' : ''}]`, bestHead && !w.stun);
+        this.damageBot(best, r, dealt, `${this.nick} [${w.id}${w.stun ? '⚡' : ''}]`, bestHead && !w.stun);
       } else {
-        this.socket.emit('player:hit', { target: best, damage: w.dmg * dmgMul, weapon: (bestHead && !w.stun) ? w.id + '(헤드샷)' : w.id, stun: !!w.stun });
+        this.socket.emit('player:hit', { target: best, damage: dealt, weapon: (bestHead && !w.stun) ? w.id + '(헤드샷)' : w.id, stun: !!w.stun });
       }
     } else {
       // 빗나감: 벽/바닥 탄착점까지 트레이서 + 스파크
@@ -1571,7 +1587,7 @@ export class FPSGame {
       if (d < bestD && fwd.angleTo(to.normalize()) < 0.6) { bestD = d; best = name; }
     }
     if (best) {
-      this.showHit(false); Sfx.hit();
+      this.showHit(false, w.dmg); Sfx.hit();
       const r = this.remotes.get(best);
       const impact = origin.clone().addScaledVector(fwd, bestD);
       this.spawnSparks(impact, 0xcc2222, 6);
@@ -1624,11 +1640,23 @@ export class FPSGame {
     this.feed(`🩸 FIRST BLOOD: ${killer} → ${victim}`);
   }
 
-  showHit(headshot = false) {
+  showHit(headshot = false, dmg = 0) {
     const h = document.getElementById('hitmarker');
     h.textContent = headshot ? 'HEADSHOT' : '✕';
     h.style.color = headshot ? '#ffcf3f' : '#ff4040';
     h.style.opacity = 1; setTimeout(() => h.style.opacity = 0, headshot ? 300 : 120);
+    if (dmg > 0) {
+      const box = document.getElementById('dmg-float');
+      if (box) {
+        while (box.children.length > 8) box.firstChild.remove();
+        const s = document.createElement('span');
+        s.textContent = Math.round(dmg);
+        if (headshot) s.className = 'hs';
+        s.style.setProperty('--dx', ((Math.random() - 0.5) * 70).toFixed(0) + 'px');
+        box.appendChild(s);
+        setTimeout(() => s.remove(), 650);
+      }
+    }
   }
   flashDamage() { document.getElementById('hp-fill').style.background = '#e74c3c'; setTimeout(() => document.getElementById('hp-fill').style.background = '', 150); }
 
@@ -1769,6 +1797,10 @@ export class FPSGame {
   updateMatchInfo() {
     const st = this.serverState, el = document.getElementById('match-info'), fb = document.getElementById('flag-bar'), tm = document.getElementById('timer');
     if (!st) return;
+    if (this.room.mode !== 'defuse') {
+      const pp = document.getElementById('round-pips');
+      if (pp && pp.innerHTML) pp.innerHTML = '';
+    }
     const rk = this.room.ranked ? '🏆경쟁 ' : '';
     if (this.room.mode === 'conquest') {
       el.textContent = `${rk}⚔ 정복전 | 🎫 ALPHA ${st.tickets?.alpha ?? '-'} : ${st.tickets?.bravo ?? '-'} BRAVO`;
@@ -1794,6 +1826,12 @@ export class FPSGame {
       el.textContent = `${rk}💣 폭파전 R${st.round}/${st.maxRounds} | CT ${st.score?.CT} : ${st.score?.T} T`;
       fb.textContent = st.bomb?.planted ? `💣 ${st.bomb.site} 설치됨! ${st.bomb.timeLeft}s` : '폭탄 미설치';
       tm.textContent = '';
+      const pips = document.getElementById('round-pips');
+      if (pips) {
+        const max = st.maxRounds || 5, ct = st.score?.CT || 0, tt = st.score?.T || 0;
+        const row = (n, cls) => Array.from({ length: max }, (_, i) => `<span class="${i < n ? cls : 'off'}">●</span>`).join('');
+        pips.innerHTML = `${row(ct, 'ct')} <span class="off">·</span> ${row(tt, 't')}`;
+      }
     } else if (this.room.mode === 'tdm') {
       const s = st.score || {};
       el.textContent = `${rk}💀 팀 데스매치 | ${s.alpha ?? s.CT ?? 0} : ${s.bravo ?? s.T ?? 0} (선착 ${st.target}킬)`;
@@ -1897,6 +1935,18 @@ export class FPSGame {
       if (!shake.checked) this.shake = 0;
       this.saveSettings();
     };
+    const xhc = document.getElementById('set-xhcolor');
+    const xhg = document.getElementById('set-xhgap');
+    const xhd = document.getElementById('set-xhdot');
+    if (xhc && xhg && xhd) {
+      xhc.value = this.settings.xhColor;
+      xhg.value = this.settings.xhGap;
+      xhd.checked = this.settings.xhDot;
+      this.applyCrosshair();
+      xhc.onchange = () => { this.settings.xhColor = xhc.value; this.saveSettings(); this.applyCrosshair(); };
+      xhg.oninput = () => { this.settings.xhGap = Number(xhg.value) || 6; this.saveSettings(); };
+      xhd.onchange = () => { this.settings.xhDot = xhd.checked; this.saveSettings(); this.applyCrosshair(); };
+    } else this.applyCrosshair();
   }
 
   // ================= 메인 루프 =================
@@ -1972,14 +2022,16 @@ export class FPSGame {
     const ch = document.getElementById('crosshair');
     ch.style.opacity = (!this.alive || scoped) ? 0 : 1;
     if (this.vmRig) this.vmRig.visible = this.alive; // 킬캠/사망 시 뷰모델 숨김
-    const spread = 1 + (this.isMoving ? 0.35 : 0) + this.vmRecoil * 0.9 + (this.firing ? 0.35 : 0);
-    ch.style.transform = `translate(-50%,-50%) scale(${spread.toFixed(2)})`;
+    const gapPx = (this.settings.xhGap || 6) + (this.isMoving ? 4 : 0) + (this.grounded ? 0 : 7) + this.vmRecoil * 9 + (this.firing ? 3 : 0);
+    ch.style.setProperty('--gap', gapPx.toFixed(1) + 'px');
     // 발소리
     if (this.isMoving && this.alive && document.pointerLockElement === this.canvas) {
       this.stepT -= dt * ((this.keys.ShiftLeft || this.keys.ShiftRight) ? 1.5 : 1);
       if (this.stepT <= 0) { this.stepT = 0.38; Sfx.step(); }
     }
     // CT 폭탄 해체: E 홀드 3초
+    const defBar = document.getElementById('defuse-bar');
+    const defFill = document.getElementById('defuse-fill');
     if (this.room.mode === 'defuse' && this.team === 'CT' && this.alive && this.bombPlantedPos) {
       if (this.keys.KeyE && this.pos.distanceTo(this.bombPlantedPos) < 4) {
         const before = this.defuseP;
@@ -1988,6 +2040,11 @@ export class FPSGame {
         if (this.defuseP >= 1) { this.socket.emit('bomb:defuse'); this.defuseP = 0; }
       } else this.defuseP = 0;
     } else this.defuseP = 0;
+    if (defBar && defFill) {
+      const show = this.defuseP > 0;
+      defBar.classList.toggle('hidden', !show);
+      if (show) defFill.style.width = (this.defuseP * 100).toFixed(0) + '%';
+    }
     // 네트워크 전송 20Hz
     this.netTimer += dt;
     if (this.netTimer > 0.05) { this.netTimer = 0; this.socket.emit('player:state', { pos: { x: this.pos.x, y: this.pos.y, z: this.pos.z }, yaw: this.yaw, pitch: this.pitch, wi: this.wi, fy: this.pos.y - this.eyeBase, crouch: !!this.crouch }); }

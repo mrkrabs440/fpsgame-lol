@@ -109,3 +109,37 @@ header{display:flex;justify-content:space-between;align-items:center}
 #quick-settings select{width:auto;margin:0;padding:6px}
 #quick-settings input[type=checkbox]{width:auto;margin:0}
 @media(max-width:800px){.mode-cards,.lobby-main{grid-template-columns:1fr}}
+:root{--val-red:#ff4655;--val-dark:#0f1923;--val-paper:#ece8e1;--val-teal:#00e5a0;--val-blue:#3a7bff}
+#topbar{background:rgba(15,25,35,.82);border:1px solid rgba(255,70,85,.35);border-top:3px solid var(--val-red);padding:8px 22px;min-width:340px}
+#match-info{color:var(--val-paper);letter-spacing:.5px}
+#round-pips{font-size:15px;letter-spacing:4px;margin-top:2px}
+#round-pips .ct{color:var(--val-blue)}#round-pips .t{color:var(--val-red)}#round-pips .off{color:#3a4a5a}
+#killfeed div{background:rgba(15,25,35,.85);border-left:3px solid var(--val-red);border-radius:3px;font-weight:bold}
+#crosshair{position:absolute;left:50%;top:50%;width:0;height:0;--gap:6px;--xh:#00e5a0;font-size:0;color:transparent;text-shadow:none;transform:translate(-50%,-50%)}
+#crosshair .chl{position:absolute;background:var(--xh);box-shadow:0 0 2px #000}
+#crosshair .t{left:-1px;top:calc(-6px - var(--gap));width:2px;height:6px}
+#crosshair .b{left:-1px;top:var(--gap);width:2px;height:6px}
+#crosshair .l{top:-1px;left:calc(-6px - var(--gap));height:2px;width:6px}
+#crosshair .r{top:-1px;left:var(--gap);height:2px;width:6px}
+#crosshair .cdot{position:absolute;left:-1px;top:-1px;width:2px;height:2px;background:var(--xh)}
+#hitmarker{text-shadow:0 0 6px #000;font-weight:bold}
+#dmg-float{position:absolute;left:50%;top:50%;pointer-events:none}
+#dmg-float span{position:absolute;transform:translate(-50%,-50%);font-weight:bold;font-size:16px;color:var(--val-paper);text-shadow:0 0 4px #000;animation:dmgup .6s ease-out forwards}
+#dmg-float span.hs{color:#ffd23f;font-size:19px}
+@keyframes dmgup{to{transform:translate(calc(-50% + var(--dx,10px)),-70px);opacity:0}}
+#defuse-bar{position:absolute;left:50%;top:56%;transform:translateX(-50%);width:220px;height:8px;background:rgba(0,0,0,.6);border:1px solid var(--val-teal);border-radius:4px;overflow:hidden}
+#defuse-fill{height:100%;width:0;background:var(--val-teal)}
+#weapon-name{color:var(--val-red);letter-spacing:1px}
+#ammo{color:var(--val-paper)}
+.shop-box{border-color:var(--val-red);border-top:4px solid var(--val-red)}
+.shop-box h2{color:var(--val-paper);letter-spacing:1px}
+.shop-item:hover,.shop-item.active{border-color:var(--val-red)}
+#match-end .me-box{border-color:var(--val-red);border-top:4px solid var(--val-red)}
+#me-title{color:var(--val-paper)}
+button.primary{background:var(--val-red)}
+button.primary:hover{background:#ff6b78}
+.tab.active{background:var(--val-red)}
+.auth-box h1 span{color:var(--val-red)}
+.room .info b{color:var(--val-paper)}
+#my-rating{background:#2a1215;color:var(--val-red)}
+#quick-settings{flex-wrap:wrap;justify-content:center;max-width:640px}

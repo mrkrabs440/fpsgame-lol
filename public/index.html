@@ -93,12 +93,15 @@
 <div id="game-screen" class="screen hidden">
   <canvas id="game-canvas"></canvas>
   <div id="hud">
-    <div id="crosshair">+</div>
+    <div id="crosshair"><i class="chl t"></i><i class="chl b"></i><i class="chl l"></i><i class="chl r"></i><i class="cdot"></i></div>
     <div id="scope" class="hidden"></div>
     <div id="lowhp" class="hidden"></div>
     <div id="hitmarker"></div>
+    <div id="dmg-float"></div>
+    <div id="defuse-bar" class="hidden"><div id="defuse-fill"></div></div>
     <div id="topbar">
       <div id="match-info">대기중</div>
+      <div id="round-pips"></div>
       <div id="timer"></div>
       <div id="flag-bar"></div>
     </div>
@@ -121,8 +124,8 @@
     <div id="respawn-overlay" class="hidden"><h2>전사했습니다</h2><div id="death-by"></div><p>2초 후 부활...</p></div>
     <div id="round-overlay" class="hidden"></div>
   </div>
-  <div id="click-to-play"><h2>클릭하여 참전</h2><p>WASD + 마우스 · ESC 메뉴</p><div id="quick-settings"><label>감도 <span id="set-sens-val">1.0x</span><input id="set-sens" type="range" min="0.2" max="3" step="0.1" value="1"></label><label>그래픽 <select id="set-graphics"><option value="low">LOW (저사양)</option><option value="medium">MEDIUM</option><option value="high">HIGH</option></select></label><label class="ranked-row" style="margin:0"><input id="set-shake" type="checkbox" checked> 화면 흔들림</label></div><button id="btn-leave">로비로 탈출</button></div>
-  <div id="shop" class="hidden"><div class="shop-box"><h2>🔫 무기 상점 <span>(전부 무료)</span></h2><div id="shop-grid"></div><button id="btn-shop-close" class="primary">닫기 (B)</button></div></div>
+  <div id="click-to-play"><h2>클릭하여 참전</h2><p>WASD + 마우스 · ESC 메뉴</p><div id="quick-settings"><label>감도 <span id="set-sens-val">1.0x</span><input id="set-sens" type="range" min="0.2" max="3" step="0.1" value="1"></label><label>그래픽 <select id="set-graphics"><option value="low">LOW (저사양)</option><option value="medium">MEDIUM</option><option value="high">HIGH</option></select></label><label class="ranked-row" style="margin:0"><input id="set-shake" type="checkbox" checked> 화면 흔들림</label><label>조준선 <select id="set-xhcolor"><option value="#00e5a0">민트</option><option value="#ffffff">화이트</option><option value="#ff4655">레드</option><option value="#ffe600">옐로우</option></select></label><label>간격 <input id="set-xhgap" type="range" min="2" max="16" step="1" value="6"></label><label class="ranked-row" style="margin:0"><input id="set-xhdot" type="checkbox" checked> 도트</label></div><button id="btn-leave">로비로 탈출</button></div>
+  <div id="shop" class="hidden"><div class="shop-box"><h2>BUY MENU <span>· 전부 무료</span></h2><div id="shop-grid"></div><button id="btn-shop-close" class="primary">닫기 (B)</button></div></div>
   <div id="match-end" class="hidden"><div class="me-box"><h1 id="me-title">🏆 승리</h1><div id="me-sub"></div><div id="me-stats"></div><button id="btn-continue" class="primary">계속 플레이</button><button id="btn-tolobby">로비로</button></div></div>
 </div>
 
