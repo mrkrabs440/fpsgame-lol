@@ -156,7 +156,7 @@ function roomPlayersById(roomId) {
   if (!room) return [];
   return room.order.map(sid => {
     const pl = players.get(sid);
-    return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw, pitch: pl.pitch || 0, wi: pl.wi || 0, fy: pl.fy || 0 } : null;
+    return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw, pitch: pl.pitch || 0, wi: pl.wi || 0, fy: pl.fy || 0, crouch: !!pl.crouch } : null;
   }).filter(Boolean);
 }
 
@@ -477,7 +477,7 @@ io.on('connection', (socket) => {
     if (!room) return [];
     return room.order.map(sid => {
       const pl = players.get(sid);
-      return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw, pitch: pl.pitch || 0, wi: pl.wi || 0, fy: pl.fy || 0 } : null;
+      return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw, pitch: pl.pitch || 0, wi: pl.wi || 0, fy: pl.fy || 0, crouch: !!pl.crouch } : null;
     }).filter(Boolean);
   }
 
@@ -485,12 +485,12 @@ io.on('connection', (socket) => {
   socket.on('player:state', (d) => {
     const p = players.get(socket.id);
     if (!p || !p.roomId || !d || !d.pos) return;
-    p.pos = d.pos; p.yaw = d.yaw; p.pitch = d.pitch || 0; p.wi = d.wi || 0; p.fy = d.fy || 0;
-    socket.to('room_' + p.roomId).emit('player:move', { nickname: p.nickname, team: p.team, pos: d.pos, yaw: d.yaw, hp: p.hp, alive: p.alive, pitch: p.pitch, wi: p.wi, fy: p.fy });
+    p.pos = d.pos; p.yaw = d.yaw; p.pitch = d.pitch || 0; p.wi = d.wi || 0; p.fy = d.fy || 0; p.crouch = !!d.crouch;
+    socket.to('room_' + p.roomId).emit('player:move', { nickname: p.nickname, team: p.team, pos: d.pos, yaw: d.yaw, hp: p.hp, alive: p.alive, pitch: p.pitch, wi: p.wi, fy: p.fy, crouch: p.crouch });
   });
 
   // 피해 적용 공용 (총탄·수류탄): HP 차감→사망/데미지 브로드캐스트→리스폰
-  function strike(room, shooter, targetEntry, damage, weapon) {
+  function strike(room, shooter, targetEntry, damage, weapon, stun = false) {
     if (!room || !targetEntry || !targetEntry.alive) return;
     targetEntry.hp -= damage;
     if (targetEntry.hp <= 0) {
@@ -513,14 +513,14 @@ io.on('connection', (socket) => {
         }, 2000);
       }
     } else {
-      io.to('room_' + room.id).emit('player:damaged', { target: targetEntry.nickname, hp: targetEntry.hp, attacker: shooter.nickname });
+      io.to('room_' + room.id).emit('player:damaged', { target: targetEntry.nickname, hp: targetEntry.hp, attacker: shooter.nickname, stun });
     }
     checkDefuseElimination(room);
   }
 
   // 피격 판정 (슈터가 raycast 후 전송 → 서버가 HP 차감 후 브로드캐스트)
   socket.on('player:hit', (d) => {
-    const { target, damage, weapon } = d || {};
+    const { target, damage, weapon, stun } = d || {};
     if (!target || !damage) return;
     const shooter = players.get(socket.id);
     if (!shooter || !shooter.roomId) return;
@@ -529,7 +529,7 @@ io.on('connection', (socket) => {
     const targetEntry = [...players.values()].find(pl => pl.roomId === shooter.roomId && pl.nickname === target && pl.alive);
     if (!targetEntry) return;
     if (targetEntry.team === shooter.team) return; // 아군 오사 방지
-    strike(room, shooter, targetEntry, damage, weapon);
+    strike(room, shooter, targetEntry, damage, weapon, !!stun);
   });
 
   // 봇 공격 판정 (클라 봇이 원격 플레이어를 맞췄을 때, 킬러=BOT 이름)
@@ -550,19 +550,28 @@ io.on('connection', (socket) => {
     socket.to('room_' + p.roomId).emit('player:nade', { nickname: p.nickname, from: d.from, vel: d.vel });
   });
 
-  // 수류탄 폭발 범위 피해 (반경 9m, 거리 감쇠)
+  // 수류탄/RPG 폭발 범위 피해 (반경·위력 상한)
   socket.on('player:blast', (d) => {
     const shooter = players.get(socket.id);
     if (!shooter || !shooter.roomId || !d || !d.pos) return;
     const room = rooms.get(shooter.roomId);
     if (!room) return;
+    const radius = Math.min(Math.max(d.radius || 9, 1), 14);
+    const power = Math.min(Math.max(d.power || 105, 1), 160);
     for (const pl of players.values()) {
       if (pl.roomId !== shooter.roomId || !pl.alive) continue;
       if (pl.nickname === shooter.nickname || pl.team === shooter.team) continue;
       const dx = pl.pos.x - d.pos.x, dy = (pl.pos.y || 1.7) - d.pos.y, dz = pl.pos.z - d.pos.z;
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      if (dist < 9) strike(room, shooter, pl, Math.max(12, Math.round(105 * (1 - dist / 10))), '수류탄💣');
+      if (dist < radius) strike(room, shooter, pl, Math.max(12, Math.round(power * (1 - dist / (radius + 1)))), d.power > 120 ? 'RPG🚀' : '수류탄💣');
     }
+  });
+
+  // RPG 로켓 비행 중계
+  socket.on('player:rocket', (d) => {
+    const p = players.get(socket.id);
+    if (!p || !p.roomId || !p.alive || !d || !d.from || !d.vel) return;
+    socket.to('room_' + p.roomId).emit('player:rocketfly', { nickname: p.nickname, from: d.from, vel: d.vel });
   });
 
   socket.on('flag:capture', (d) => {
