@@ -83,7 +83,7 @@
     </div>
     </div>
   </div>
-  <div class="help">WASD 이동 · Space 점프 · 마우스 조준 · 클릭 사격 · G 수류탄 · R 재장전 · 1/2/3 무기교체 · E 상호작용(거점/폭탄) · 헤드샷 2배 · Shift 달리기 · Tab 스코어보드 · Enter 채팅</div>
+  <div class="help">WASD 이동 · Space 점프 · 마우스 조준 · 클릭 사격 · G 수류탄 · B 무료상점 · R 재장전 · 1~7 무기교체 · E 상호작용 · 헤드샷 2배 · Shift 달리기 · Tab 스코어보드 · Enter 채팅 · 사망 시 Q 아군관전</div>
 </div>
 
 <!-- 게임 화면 -->
@@ -115,10 +115,12 @@
     <div id="scoreboard" class="hidden"></div>
     <div id="chat"><div id="chat-log"></div><input id="chat-input" placeholder="Enter 채팅..." class="hidden"></div>
     <div id="interact-tip" class="hidden">E 키: 상호작용</div>
-    <div id="respawn-overlay" class="hidden"><h2>전사했습니다</h2><div id="death-by"></div><p>3초 후 부활...</p></div>
+    <div id="respawn-overlay" class="hidden"><h2>전사했습니다</h2><div id="death-by"></div><p>2초 후 부활...</p></div>
     <div id="round-overlay" class="hidden"></div>
   </div>
   <div id="click-to-play"><h2>클릭하여 참전</h2><p>WASD + 마우스 · ESC 메뉴</p><button id="btn-leave">로비로 탈출</button></div>
+  <div id="shop" class="hidden"><div class="shop-box"><h2>🔫 무기 상점 <span>(전부 무료)</span></h2><div id="shop-grid"></div><button id="btn-shop-close" class="primary">닫기 (B)</button></div></div>
+  <div id="match-end" class="hidden"><div class="me-box"><h1 id="me-title">🏆 승리</h1><div id="me-sub"></div><div id="me-stats"></div><button id="btn-continue" class="primary">계속 플레이</button><button id="btn-tolobby">로비로</button></div></div>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>

@@ -29,6 +29,34 @@ function loadUsers() {
 }
 function saveUsers(u) { fs.writeFileSync(USERS_FILE, JSON.stringify(u, null, 2)); }
 
+// 재시작 초기화 방지: 세션·방 파일 영속화
+const SESS_FILE = path.join(DATA_DIR, 'sessions.json');
+const ROOMS_FILE = path.join(DATA_DIR, 'rooms.json');
+function loadSessions() {
+  try {
+    const o = JSON.parse(fs.readFileSync(SESS_FILE, 'utf8'));
+    for (const [k, v] of Object.entries(o)) sessions.set(k, v);
+  } catch {}
+}
+function saveSessions() {
+  try { fs.writeFileSync(SESS_FILE, JSON.stringify(Object.fromEntries(sessions))); } catch {}
+}
+let roomsDirty = false;
+function saveRooms() {
+  try {
+    const arr = [...rooms.values()].map(r => ({ ...r, order: [] }));
+    fs.writeFileSync(ROOMS_FILE, JSON.stringify(arr, null, 2));
+    roomsDirty = false;
+  } catch {}
+}
+function loadRooms() {
+  try {
+    const arr = JSON.parse(fs.readFileSync(ROOMS_FILE, 'utf8'));
+    for (const r of arr) rooms.set(r.id, { ...r, order: [], emptySince: null });
+  } catch {}
+}
+setInterval(() => { if (roomsDirty) saveRooms(); }, 15000);
+
 // 랭킹/경쟁전 스탯 보장 (구 계정 마이그레이션)
 function ensureStats(u) {
   let touched = false;
@@ -82,6 +110,7 @@ app.post('/api/login', async (req, res) => {
   for (const [tok, uid] of sessions) if (uid === user.id) sessions.delete(tok);
   const token = uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, '');
   sessions.set(token, user.id);
+  saveSessions();
   return res.json({ ok: true, token, nickname: user.nickname, username: user.username });
 });
 
@@ -117,6 +146,7 @@ app.get('/api/rankings', (req, res) => {
 
 app.post('/api/logout', authMiddleware, (req, res) => {
   sessions.delete(req.token);
+  saveSessions();
   res.json({ ok: true });
 });
 
@@ -126,7 +156,7 @@ function roomPlayersById(roomId) {
   if (!room) return [];
   return room.order.map(sid => {
     const pl = players.get(sid);
-    return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw } : null;
+    return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw, pitch: pl.pitch || 0, wi: pl.wi || 0, fy: pl.fy || 0 } : null;
   }).filter(Boolean);
 }
 
@@ -189,6 +219,7 @@ app.post('/api/rooms', authMiddleware, (req, res) => {
     state: initRoomState(mode)
   };
   rooms.set(id, room);
+  roomsDirty = true; saveRooms();
   broadcastLobby();
   res.json({ ok: true, room: publicRoom(room) });
 });
@@ -210,6 +241,7 @@ app.post('/api/competitive/quick', authMiddleware, (req, res) => {
     order: [], teams: {}, status: 'ranked', createdAt: Date.now(), state: initRoomState(m)
   };
   rooms.set(id, room);
+  roomsDirty = true; saveRooms();
   broadcastLobby();
   res.json({ ok: true, room: publicRoom(room), quick: true, created: true });
 });
@@ -220,12 +252,13 @@ app.delete('/api/rooms/:id', authMiddleware, (req, res) => {
   if (r.hostId !== req.user.id) return res.status(403).json({ error: '방장만 삭제 가능' });
   io.to('room_' + r.id).emit('room:closed', { message: '방장이 방을 폭파했습니다.' });
   rooms.delete(req.params.id);
+  roomsDirty = true; saveRooms();
   broadcastLobby();
   res.json({ ok: true });
 });
 
 function initRoomState(mode) {
-  if (mode === 'conquest') return { tickets: { alpha: 200, bravo: 200 }, flags: { A: 'neutral', B: 'neutral', C: 'neutral' }, progress: { A: 0, B: 0, C: 0 } };
+  if (mode === 'conquest') return { tickets: { alpha: 150, bravo: 150 }, flags: { A: 'neutral', B: 'neutral', C: 'neutral' }, progress: { A: 0, B: 0, C: 0 } };
   if (mode === 'operation') return { objectiveHp: 1000, phase: 'combat', targetDestroyed: false };
   return { round: 1, maxRounds: 5, score: { CT: 0, T: 0 }, bomb: { planted: false, site: null, timeLeft: 0, exploded: false }, phase: 'buy', roundTimer: 100 };
 }
@@ -243,7 +276,7 @@ setInterval(() => {
       else if (Date.now() - room.emptySince > 5 * 60 * 1000) { rooms.delete(id); changed = true; }
     } else room.emptySince = null;
   }
-  if (changed) broadcastLobby();
+  if (changed) { roomsDirty = true; saveRooms(); broadcastLobby(); }
 }, 60 * 1000);
 
 function assignTeam(room) {
@@ -290,6 +323,7 @@ function endMatch(room, winner, reason) {
   }
   io.to('room_' + room.id).emit('game:over', { winner, reason, state: room.state, ranked: !!room.ranked, ratingChanges: changes, mvp });
   room.state = initRoomState(room.mode);
+  roomsDirty = true;
   io.to('room_' + room.id).emit('game:reset', { state: room.state });
 }
 
@@ -356,6 +390,7 @@ function nextRound(room) {
   }
   io.to('room_' + room.id).emit('room:players', roomPlayersById(room.id));
   io.to('room_' + room.id).emit('round:next', { state: room.state });
+  roomsDirty = true;
 }
 
 // 폭파전 전멸 승패 (한 팀 전멸 시 생존팀 득점 → 3초 후 다음 라운드)
@@ -442,7 +477,7 @@ io.on('connection', (socket) => {
     if (!room) return [];
     return room.order.map(sid => {
       const pl = players.get(sid);
-      return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw } : null;
+      return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw, pitch: pl.pitch || 0, wi: pl.wi || 0, fy: pl.fy || 0 } : null;
     }).filter(Boolean);
   }
 
@@ -450,8 +485,8 @@ io.on('connection', (socket) => {
   socket.on('player:state', (d) => {
     const p = players.get(socket.id);
     if (!p || !p.roomId || !d || !d.pos) return;
-    p.pos = d.pos; p.yaw = d.yaw;
-    socket.to('room_' + p.roomId).emit('player:move', { nickname: p.nickname, team: p.team, pos: d.pos, yaw: d.yaw, hp: p.hp, alive: p.alive });
+    p.pos = d.pos; p.yaw = d.yaw; p.pitch = d.pitch || 0; p.wi = d.wi || 0; p.fy = d.fy || 0;
+    socket.to('room_' + p.roomId).emit('player:move', { nickname: p.nickname, team: p.team, pos: d.pos, yaw: d.yaw, hp: p.hp, alive: p.alive, pitch: p.pitch, wi: p.wi, fy: p.fy });
   });
 
   // 피해 적용 공용 (총탄·수류탄): HP 차감→사망/데미지 브로드캐스트→리스폰
@@ -468,14 +503,14 @@ io.on('connection', (socket) => {
         killerTeam: shooter.team, victimTeam: targetEntry.team
       });
       io.to('room_' + room.id).emit('room:players', roomPlayers(room.id));
-      // 3초 후 리스폰 (defuse 모드는 라운드 종료까지 리스폰 없음)
+      // 2초 후 리스폰 (defuse 모드는 라운드 종료까지 리스폰 없음)
       if (room.mode !== 'defuse') {
         setTimeout(() => {
           if (!rooms.get(room.id)) return;
           targetEntry.hp = 100; targetEntry.alive = true;
           io.to('room_' + room.id).emit('player:respawned', { nickname: targetEntry.nickname });
           io.to('room_' + room.id).emit('room:players', roomPlayers(room.id));
-        }, 3000);
+        }, 2000);
       }
     } else {
       io.to('room_' + room.id).emit('player:damaged', { target: targetEntry.nickname, hp: targetEntry.hp, attacker: shooter.nickname });
@@ -605,4 +640,6 @@ io.on('connection', (socket) => {
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
+loadSessions();
+loadRooms();
 server.listen(PORT, () => console.log(`FPS 서버 실행: http://localhost:${PORT}`));
