@@ -116,6 +116,7 @@ function ensureStats(u) {
   let touched = false;
   const defaults = { rating: 1000, wins: 0, losses: 0, kills: 0, deaths: 0, mvp: 0, matches: 0 };
   for (const [k, v] of Object.entries(defaults)) if (u[k] === undefined) { u[k] = v; touched = true; }
+  if (!Array.isArray(u.friends)) { u.friends = []; touched = true; }
   return touched;
 }
 function getTier(rating) {
@@ -242,6 +243,52 @@ app.patch('/api/nickname', authMiddleware, (req, res) => {
   }
   broadcastLobby();
   res.json({ ok: true, nickname: nn, message: `닉네임이 ${nn}(으)로 변경되었습니다.` });
+});
+
+// ---------- 친구 API (userId 기반, online/offline 표시) ----------
+function friendEntry(u) {
+  let room = null, online = false;
+  for (const pl of players.values()) {
+    if (pl.userId !== u.id) continue;
+    online = true;
+    if (pl.roomId && rooms.get(pl.roomId)) {
+      const r = rooms.get(pl.roomId);
+      room = { id: r.id, name: r.name, mode: r.mode, playerCount: r.order.length, maxPlayers: r.maxPlayers };
+      break;
+    }
+  }
+  return { userId: u.id, nickname: u.nickname, rating: u.rating || 1000, tier: getTier(u.rating || 1000), online, room };
+}
+
+app.get('/api/friends', authMiddleware, (req, res) => {
+  const users = loadUsers();
+  const list = ((req.user.friends || []).map(fid => users.find(u => u.id === fid)).filter(Boolean)).map(friendEntry);
+  res.json({ ok: true, friends: list });
+});
+
+app.post('/api/friends', authMiddleware, (req, res) => {
+  const nn = String((req.body || {}).nickname || '').trim();
+  if (!nn) return res.status(400).json({ error: '닉네임을 입력하세요.' });
+  const users = loadUsers();
+  const me = users.find(u => u.id === req.user.id);
+  const target = users.find(u => u.nickname === nn);
+  if (!target) return res.status(404).json({ error: '없는 닉네임입니다.' });
+  if (target.id === me.id) return res.status(400).json({ error: '자신은 추가할 수 없습니다.' });
+  me.friends = Array.isArray(me.friends) ? me.friends : [];
+  if (me.friends.includes(target.id)) return res.status(409).json({ error: '이미 친구입니다.' });
+  if (me.friends.length >= 50) return res.status(400).json({ error: '친구는 50명까지 추가할 수 있습니다.' });
+  me.friends.push(target.id);
+  saveUsers(users);
+  res.json({ ok: true, friend: friendEntry(target) });
+});
+
+app.delete('/api/friends/:uid', authMiddleware, (req, res) => {
+  const users = loadUsers();
+  const me = users.find(u => u.id === req.user.id);
+  if (!me) return res.status(401).json({ error: '세션 만료' });
+  me.friends = (me.friends || []).filter(fid => fid !== req.params.uid);
+  saveUsers(users);
+  res.json({ ok: true });
 });
 
 // ---------- Room API ----------
@@ -602,14 +649,15 @@ io.on('connection', (socket) => {
         killerTeam: shooter.team, victimTeam: targetEntry.team
       });
       io.to('room_' + room.id).emit('room:players', roomPlayers(room.id));
-      // 2초 후 리스폰 (defuse 모드는 라운드 종료까지 리스폰 없음)
+      // 리스폰 (defuse 모드는 라운드 종료까지 리스폰 없음, 데스매치 계열은 1.5초)
       if (room.mode !== 'defuse') {
+        const delay = (room.mode === 'tdm' || room.mode === 'ffa' || room.mode === 'gungame') ? 1500 : 2000;
         setTimeout(() => {
           if (!rooms.get(room.id)) return;
           targetEntry.hp = 100; targetEntry.alive = true;
           io.to('room_' + room.id).emit('player:respawned', { nickname: targetEntry.nickname });
           io.to('room_' + room.id).emit('room:players', roomPlayers(room.id));
-        }, 2000);
+        }, delay);
       }
     } else {
       io.to('room_' + room.id).emit('player:damaged', { target: targetEntry.nickname, hp: targetEntry.hp, attacker: shooter.nickname, stun });
@@ -758,6 +806,29 @@ io.on('connection', (socket) => {
     const p = players.get(socket.id);
     if (!p || !p.roomId || !p.alive) return;
     socket.to('room_' + p.roomId).emit('player:shot', { nickname: p.nickname });
+  });
+
+  socket.on('friend:invite', (d) => {
+    const me = players.get(socket.id);
+    if (!me) return;
+    if (!me.roomId || !rooms.get(me.roomId)) return socket.emit('friend:invite:result', { ok: false, error: '방에 입장한 상태에서만 초대할 수 있습니다.' });
+    if (!allow(socket.id + ':invite', 5000)) return;
+    const toNick = String((d && d.to) || '').trim().slice(0, 12);
+    if (!toNick || toNick === me.nickname) return;
+    const users = loadUsers();
+    const meUser = users.find(u => u.id === me.userId);
+    const target = users.find(u => u.nickname === toNick);
+    if (!target) return socket.emit('friend:invite:result', { ok: false, error: '없는 닉네임입니다.' });
+    if (!meUser || !(meUser.friends || []).includes(target.id)) return socket.emit('friend:invite:result', { ok: false, error: '친구 목록에 있는 유저만 초대할 수 있습니다.' });
+    const room = rooms.get(me.roomId);
+    let sent = 0;
+    for (const [sid, pl] of players) {
+      if (pl.userId === target.id && io.sockets.sockets.get(sid)) {
+        io.to(sid).emit('friend:invited', { from: me.nickname, roomId: room.id, roomName: room.name });
+        sent++;
+      }
+    }
+    socket.emit('friend:invite:result', sent ? { ok: true } : { ok: false, error: '상대가 오프라인입니다.' });
   });
 
   socket.on('chat:msg', (d) => {

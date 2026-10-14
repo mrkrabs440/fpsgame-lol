@@ -49,6 +49,22 @@ header{display:flex;justify-content:space-between;align-items:center}
 .room .info{flex:1}.room .info b{color:#ffb300}.room .mode{font-size:12px;color:#9fb2c5}
 .room button{background:#1f7a3a;border:none;color:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;font-weight:bold}
 .room button:hover{background:#27a04d}
+.friend-panel{background:#141c26;border:1px solid #2a3a4d;border-radius:12px;padding:14px;margin-top:12px}
+.friend-add{display:flex;gap:8px;margin-bottom:10px}
+.friend-add input{margin:0}
+.friend-add button{background:#1f7a3a;border:none;color:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;font-weight:bold;white-space:nowrap}
+#friend-list{display:flex;flex-direction:column;gap:6px;max-height:240px;overflow-y:auto;font-size:13px}
+.friend-row{display:flex;gap:8px;align-items:center;background:#0f1620;border:1px solid #2a3a4d;border-radius:8px;padding:7px 10px}
+.friend-row .dot{font-size:11px}
+.friend-row .dot.on{color:#7CFC00}.friend-row .dot.off{color:#5a6a7a}
+.friend-row .nm{flex:1;font-weight:bold;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.friend-row .sub{color:#7d8ea0;font-size:12px}
+.friend-row button{background:#22303f;color:#fff;border:1px solid #3a4f66;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px;white-space:nowrap}
+.friend-row button.go{background:#1f7a3a;border:none}
+.friend-row button:disabled{opacity:.4;cursor:default}
+#friend-invite{background:rgba(0,0,0,.55);padding:10px 16px;border-radius:10px;pointer-events:auto;min-width:300px;max-width:420px}
+#friend-invite h4{color:#ffb300;margin-bottom:6px;font-size:14px}
+#invite-list{display:flex;flex-direction:column;gap:6px;max-height:150px;overflow-y:auto;font-size:13px}
 .help{margin-top:12px;font-size:12px;color:#7d8ea0}
 /* 게임 */
 #game-screen{position:relative}
