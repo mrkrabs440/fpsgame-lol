@@ -112,15 +112,21 @@ export class FPSGame {
     this.spectateIdx = 0; this.specName = '';
     this.vmLand = 0; this.vmThrow = 0; this.vmSwipe = 0; this.vmSprintK = 0;
     this.vmSwayX = 0; this.vmSwayY = 0; this.vmInspect = 0; this.vmDraw = 0; this.vmFlashScale = 1; this.vmRelT = 0;
+    this.tps = false;
+    this.selfBody = null;
+    this._tv1 = new THREE.Vector3(); this._tv2 = new THREE.Vector3(); this._tv3 = new THREE.Vector3();
+    this._tv4 = new THREE.Vector3(); this._tv5 = new THREE.Vector3();
+    this._tpsRay = new THREE.Raycaster();
     this.rafId = 0; this.reloadTimer = 0; this.semiTimer = 0;
     this.firing = false; this.aiming = false; this.semiLock = false;
     this.settings = this.loadSettings();
     this.sensitivity = this.settings.sensitivity;
+    this.tps = this.settings.tps === true;
     this._hudSig = '';
   }
 
   loadSettings() {
-    let s = { sensitivity: 1.0, graphics: 'medium', shake: true, xhColor: '#00e5a0', xhGap: 6, xhDot: true };
+    let s = { sensitivity: 1.0, graphics: 'medium', shake: true, xhColor: '#00e5a0', xhGap: 6, xhDot: true, tps: false };
     try {
       const raw = localStorage.getItem('fps_settings');
       if (raw) s = { ...s, ...JSON.parse(raw) };
@@ -131,7 +137,49 @@ export class FPSGame {
     if (typeof s.xhColor !== 'string') s.xhColor = '#00e5a0';
     s.xhGap = Math.max(2, Math.min(16, Number(s.xhGap) || 6));
     s.xhDot = s.xhDot !== false;
+    s.tps = s.tps === true;
     return s;
+  }
+  toggleTPS() {
+    if (!this.alive) return;
+    this.tps = !this.tps;
+    this.settings.tps = this.tps;
+    this.saveSettings();
+    const box = document.getElementById('set-tps');
+    if (box) box.checked = this.tps;
+    this.feed(this.tps ? '📷 3인칭 시점 (V: 전환)' : '📷 1인칭 시점 (V: 전환)');
+  }
+  updateThirdPerson() {
+    const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
+    const fx = -Math.sin(this.yaw) * cp, fy = sp, fz = -Math.cos(this.yaw) * cp;
+    this._tv1.set(fx, fy, fz);
+    const feetY = this.pos.y - this.eyeBase;
+    this._tv2.set(this.pos.x, feetY + (this.crouch ? 1.0 : 1.55), this.pos.z);
+    const dist = this.aiming ? 1.8 : 3.4;
+    const rx = Math.cos(this.yaw), rz = -Math.sin(this.yaw);
+    this._tv3.set(
+      this._tv2.x - fx * dist + rx * 0.55,
+      this._tv2.y + 0.15 - fy * dist,
+      this._tv2.z - fz * dist + rz * 0.55
+    );
+    this._tv4.copy(this._tv3).sub(this._tv2);
+    const len = Math.max(0.001, this._tv4.length());
+    this._tv4.divideScalar(len);
+    this._tpsRay.set(this._tv2, this._tv4);
+    let best = len;
+    for (const c of this.colliders) {
+      if (this._tpsRay.ray.intersectBox(c, this._tv5)) {
+        const d = this._tv5.distanceTo(this._tv2);
+        if (d < best) best = d;
+      }
+    }
+    const dd = Math.max(0.4, best - 0.3);
+    this.camera.position.set(
+      this._tv2.x + this._tv4.x * dd,
+      this._tv2.y + this._tv4.y * dd,
+      this._tv2.z + this._tv4.z * dd
+    );
+    this.camera.lookAt(this._tv2.x + fx * 8, this._tv2.y + fy * 8, this._tv2.z + fz * 8);
   }
   applyCrosshair() {
     const ch = document.getElementById('crosshair');
@@ -167,6 +215,7 @@ export class FPSGame {
     this.buildGun();
     this.buildFxPools();
     this.buildCasings();
+    this.buildSelfBody();
     this.bindInputs();
     this.bindSocket();
     this.addBotsIfNeeded();
@@ -718,6 +767,7 @@ export class FPSGame {
       if (!e.repeat && e.code === 'KeyG') this.throwGrenadeMine();
       if (!e.repeat && e.code === 'Digit0') this.switchWeapon(9);
       if (!e.repeat && e.code === 'KeyF') this.inspectWeapon();
+      if (!e.repeat && e.code === 'KeyV') this.toggleTPS();
       if (e.code === 'KeyE') this.interact();
     };
     this.kd = this.onKey(true); this.ku = this.onKey(false);
@@ -1066,6 +1116,7 @@ export class FPSGame {
       this.serverState = d.state;
       this.team = this.team === 'CT' ? 'T' : this.team === 'T' ? 'CT' : this.team;
       if (this.vmSleeveMat && this.nick !== 'Tlqkfsusemfdk69') this.vmSleeveMat.color.set(this.team === 'CT' ? 0x2a3d55 : 0x5a3a2a);
+      this.buildSelfBody();
       const ov = document.getElementById('round-overlay');
       ov.classList.remove('ct', 't');
       ov.textContent = `🔄 진영 교체! 나는 ${this.team}`;
@@ -1582,6 +1633,7 @@ export class FPSGame {
     if (w.rocket) { this.fireRocket(w); return; }
     // 뷰모델 반동 + 섬광 + 카메라 킥 + 사운드
     this.vmRecoil = Math.min(1.2, this.vmRecoil + (w.id === 'AWP' ? 1.0 : w.id === 'DEAGLE' ? 0.7 : 0.42));
+    if (this.selfBody) this.selfBody.flashT = 0.09;
     this.vmFlashT = 0.05;
     this.vmFlashScale = w.id === 'AWP' ? 1.7 : w.id === 'DEAGLE' ? 1.25 : w.id === 'M870' ? 1.4 : 1;
     this.ejectCasing();
@@ -1917,9 +1969,10 @@ export class FPSGame {
       this.camera.rotation.x += (Math.random() - 0.5) * this.shake * 0.05;
       this.camera.rotation.y += (Math.random() - 0.5) * this.shake * 0.05;
     }
-    // 조준(우클릭): AWP 줌
+    // 조준(우클릭): AWP 줌 (3인칭은 어깨캠 유지)
     const w = WEAPONS[this.wi];
-    if (this.aiming && w.zoom) { this.camera.fov = 18; } else if (this.aiming) { this.camera.fov = 52; } else { this.camera.fov = 70; }
+    if (this.tps && this.aiming) { this.camera.fov = w.zoom ? 30 : 58; }
+    else if (this.aiming && w.zoom) { this.camera.fov = 18; } else if (this.aiming) { this.camera.fov = 52; } else { this.camera.fov = 70; }
     this.camera.updateProjectionMatrix();
     // 자동 점령 체크 (서서 점령)
     if (this.room.mode === 'conquest') {
@@ -2129,6 +2182,11 @@ export class FPSGame {
       xhg.oninput = () => { this.settings.xhGap = Number(xhg.value) || 6; this.saveSettings(); };
       xhd.onchange = () => { this.settings.xhDot = xhd.checked; this.saveSettings(); this.applyCrosshair(); };
     } else this.applyCrosshair();
+    const tpsBox = document.getElementById('set-tps');
+    if (tpsBox) {
+      tpsBox.checked = this.tps;
+      tpsBox.onchange = () => { this.tps = tpsBox.checked; this.settings.tps = this.tps; this.saveSettings(); };
+    }
   }
 
   async loadInviteList() {
@@ -2147,6 +2205,14 @@ export class FPSGame {
     } catch (e) { box.innerHTML = '<p>로드 실패</p>'; }
   }
 
+  buildSelfBody() {
+    if (this.selfBody) { this.scene.remove(this.selfBody.mesh); this.selfBody = null; }
+    const r = this.makeRemoteMesh({ team: this.team }, this.nick);
+    r.plate.sprite.visible = false;
+    r.mesh.visible = false;
+    r.lastPos.set(this.pos.x, 0, this.pos.z);
+    this.selfBody = r;
+  }
   // ================= 메인 루프 =================
   loop() {
     if (this.disposed) return;
@@ -2155,6 +2221,7 @@ export class FPSGame {
     const now = performance.now();
     const time = now / 1000;
     this.updateMove(dt);
+    if (this.tps && this.alive) this.updateThirdPerson();
     if (this.firing && this.alive) {
       const w = WEAPONS[this.wi];
       if (w.auto) this.tryShoot(now);
@@ -2172,6 +2239,16 @@ export class FPSGame {
         r.mesh.position.z += (r.targetPos.z - r.mesh.position.z) * 0.25;
         r.mesh.position.y += (r.targetPos.y - r.mesh.position.y) * Math.min(1, dt * 14);
       }
+    }
+    if (this.selfBody) {
+      const sb = this.selfBody;
+      if (this.tps) {
+        sb.mesh.position.set(this.pos.x, this.pos.y - this.eyeBase, this.pos.z);
+        sb.yaw = this.yaw; sb.targetPitch = this.pitch; sb.crouch = !!this.crouch; sb.team = this.team;
+        this.setSoldierGun(sb, this.wi);
+        this.setRemoteAlive(sb, this.alive);
+        this.animateSoldier(sb, dt, time);
+      } else sb.mesh.visible = false;
     }
     this.updateBots(dt);
     for (const [, r] of this.remotes) this.animateSoldier(r, dt, time);
@@ -2215,11 +2292,11 @@ export class FPSGame {
       } else if (this.specName !== '') { this.specName = ''; document.getElementById('death-by').textContent = '아군 전멸'; }
     } else if (this.alive) this.specName = '';
     // AWP 스코프 오버레이 + 조준선 확산
-    const scoped = this.aiming && WEAPONS[this.wi].zoom && this.alive;
+    const scoped = this.aiming && WEAPONS[this.wi].zoom && this.alive && !this.tps;
     document.getElementById('scope').classList.toggle('hidden', !scoped);
     const ch = document.getElementById('crosshair');
     ch.style.opacity = (!this.alive || scoped) ? 0 : 1;
-    if (this.vmRig) this.vmRig.visible = this.alive; // 킬캠/사망 시 뷰모델 숨김
+    if (this.vmRig) this.vmRig.visible = this.alive && !this.tps; // 킬캠/사망/3인칭 시 뷰모델 숨김
     const gapPx = (this.settings.xhGap || 6) + (this.isMoving ? 4 : 0) + (this.grounded ? 0 : 7) + this.vmRecoil * 9 + (this.firing ? 3 : 0);
     ch.style.setProperty('--gap', gapPx.toFixed(1) + 'px');
     // 발소리
