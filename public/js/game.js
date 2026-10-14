@@ -142,7 +142,6 @@ export class FPSGame {
     return s;
   }
   toggleTPS() {
-    if (!this.alive) return;
     this.tps = !this.tps;
     this.settings.tps = this.tps;
     this.saveSettings();
@@ -757,6 +756,7 @@ export class FPSGame {
       if (e.code === 'Tab') { e.preventDefault(); if (down) { document.getElementById('scoreboard').classList.toggle('hidden', false); this.drawScoreboard(); } else document.getElementById('scoreboard').classList.add('hidden'); return; }
       if (e.code === 'Enter' && down) { this.toggleChat(); return; }
       if (this.chatOpen) return;
+      if (!e.repeat && e.code === 'KeyV' && down) { this.toggleTPS(); return; }
       const shopOpen = !document.getElementById('shop').classList.contains('hidden');
       if (shopOpen && e.code !== 'KeyB' && e.code !== 'Escape') return;
       this.keys[e.code] = down;
@@ -768,7 +768,6 @@ export class FPSGame {
       if (!e.repeat && e.code === 'KeyG') this.throwGrenadeMine();
       if (!e.repeat && e.code === 'Digit0') this.switchWeapon(9);
       if (!e.repeat && e.code === 'KeyF') this.inspectWeapon();
-      if (!e.repeat && e.code === 'KeyV') this.toggleTPS();
       if (e.code === 'KeyE') this.interact();
     };
     this.kd = this.onKey(true); this.ku = this.onKey(false);
