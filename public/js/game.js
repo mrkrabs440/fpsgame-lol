@@ -96,6 +96,7 @@ export class FPSGame {
     this.crouch = false; this.eyeBase = 1.7; this.grounded = true;
     this.spectateIdx = 0; this.specName = '';
     this.vmLand = 0; this.vmThrow = 0; this.vmSwipe = 0; this.vmSprintK = 0;
+    this.vmSwayX = 0; this.vmSwayY = 0; this.vmInspect = 0; this.vmDraw = 0; this.vmFlashScale = 1;
     this.rafId = 0; this.reloadTimer = 0; this.semiTimer = 0;
     this.firing = false; this.aiming = false; this.semiLock = false;
     this.settings = this.loadSettings();
@@ -150,6 +151,7 @@ export class FPSGame {
     this.spawnPlayer();
     this.buildGun();
     this.buildFxPools();
+    this.buildCasings();
     this.bindInputs();
     this.bindSocket();
     this.addBotsIfNeeded();
@@ -484,6 +486,39 @@ export class FPSGame {
     }
     if (dirty) this.sparks.geometry.attributes.position.needsUpdate = true;
   }
+  buildCasings() {
+    this.caseGeo = new THREE.BoxGeometry(0.022, 0.022, 0.04);
+    this.caseMat = new THREE.MeshBasicMaterial({ color: 0xd8a833 });
+    this.cases = [];
+    for (let i = 0; i < 12; i++) {
+      const m = new THREE.Mesh(this.caseGeo, this.caseMat);
+      m.visible = false; this.scene.add(m);
+      this.cases.push({ mesh: m, vel: new THREE.Vector3(), rot: new THREE.Vector3(), t: 0 });
+    }
+    this.caseIdx = 0;
+  }
+  ejectCasing() {
+    if (!this.cases || !this.alive) return;
+    const c = this.cases[this.caseIdx = (this.caseIdx + 1) % this.cases.length];
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+    c.mesh.position.copy(this.camera.position).addScaledVector(right, 0.22).addScaledVector(up, -0.18);
+    c.vel.copy(right).multiplyScalar(1.2 + Math.random() * 0.8).addScaledVector(up, 1.6 + Math.random() * 0.6);
+    c.rot.set(Math.random() * 12, Math.random() * 12, Math.random() * 12);
+    c.t = 1.1; c.mesh.visible = true;
+  }
+  updateCasings(dt) {
+    if (!this.cases) return;
+    for (const c of this.cases) {
+      if (c.t <= 0) continue;
+      c.t -= dt;
+      if (c.t <= 0) { c.mesh.visible = false; continue; }
+      c.vel.y -= 7 * dt;
+      c.mesh.position.addScaledVector(c.vel, dt);
+      if (c.mesh.position.y < 0.03) { c.mesh.position.y = 0.03; c.vel.y *= -0.3; c.vel.x *= 0.6; c.vel.z *= 0.6; }
+      c.mesh.rotation.x += c.rot.x * dt; c.mesh.rotation.y += c.rot.y * dt;
+    }
+  }
 
   spawnPlayer() {
     const key = this.room.mode === 'defuse' ? this.team : this.room.mode === 'ffa' ? 'ffa' : (this.team === 'alpha' ? 'alpha' : 'bravo');
@@ -492,6 +527,7 @@ export class FPSGame {
     this.pos = this.findSpawn(s.x, s.z);
     this.yaw = Math.random() * Math.PI * 2; this.pitch = 0;
     this.hp = 100; this.alive = true; this.nades = 2; this.vy = 0;
+    this.vmDraw = 0.45; this.vmInspect = 0;
   }
 
   // 스폰: 조형물 콜라이더에 박히지 않는 자리 탐색 (이동불능 방지)
@@ -663,6 +699,7 @@ export class FPSGame {
       if (!e.repeat && e.code === 'KeyB') this.toggleShop();
       if (!e.repeat && e.code === 'KeyG') this.throwGrenadeMine();
       if (!e.repeat && e.code === 'Digit0') this.switchWeapon(9);
+      if (!e.repeat && e.code === 'KeyF') this.inspectWeapon();
       if (e.code === 'KeyE') this.interact();
     };
     this.kd = this.onKey(true); this.ku = this.onKey(false);
@@ -673,6 +710,8 @@ export class FPSGame {
       this.yaw -= e.movementX * s;
       this.pitch -= e.movementY * s;
       this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch));
+      this.vmSwayX = Math.max(-1.5, Math.min(1.5, (this.vmSwayX || 0) + e.movementX * 0.0016));
+      this.vmSwayY = Math.max(-1.5, Math.min(1.5, (this.vmSwayY || 0) + e.movementY * 0.0016));
     };
     addEventListener('mousemove', this.onMouseMove);
     this.onBlur = () => this.clearStuckInputs();
@@ -774,7 +813,7 @@ export class FPSGame {
     if (!this.alive || this.reloading || i === this.wi || i < 0 || i >= WEAPONS.length) return;
     if (this.reloadTimer) { clearTimeout(this.reloadTimer); this.reloadTimer = 0; }
     this.reloading = false; this.vmReloadStart = -1;
-    this.gatSpin = 0; this.semiLock = false;
+    this.gatSpin = 0; this.semiLock = false; this.vmInspect = 0;
     this.wi = i; this.vmSwitchT = 0.28;
     this.vmGuns.forEach((g, k) => g.visible = k === i);
     this.updateVmFlashPos(); this.updateHUD(); Sfx.reload();
@@ -783,6 +822,7 @@ export class FPSGame {
     const w = WEAPONS[this.wi], a = this.ammo[this.wi];
     if (w.melee || !this.alive) return;
     if (this.reloading || a.mag === w.mag || a.reserve <= 0) { if (a.mag === 0 && a.reserve <= 0) Sfx.dry(); return; }
+    this.vmInspect = 0;
     this.reloading = true;
     Sfx.reload();
     this.vmReloadDur = w.id === 'RPG' ? 3000 : w.id === 'AWP' ? 2500 : 1500;
@@ -797,9 +837,16 @@ export class FPSGame {
     }, this.vmReloadDur);
   }
 
-  // 1인칭 뷰모델 애니: 걷기흔들림+반동+장전+교체+조준
+  inspectWeapon() {
+    if (!this.alive || this.reloading || this.vmInspect > 0) return;
+    if (!document.getElementById('shop').classList.contains('hidden')) return;
+    this.vmInspect = 1.6;
+  }
+
+  // 1인칭 뷰모델 애니: 걷기흔들림+스웨이+반동+계열별 장전+교체+조준+감상
   updateViewmodel(dt, now) {
     if (!this.vmRig) return;
+    const time = now / 1000;
     const moving = this.isMoving && this.alive && document.pointerLockElement === this.canvas;
     const airborne = !this.grounded;
     const sprint = this.keys.ShiftLeft || this.keys.ShiftRight;
@@ -809,17 +856,46 @@ export class FPSGame {
     const k = this.vmAdsK;
     const bobA = 0.014 * (1 - k * 0.8);
     const bx = Math.sin(this.vmBob) * bobA, by = Math.abs(Math.cos(this.vmBob)) * bobA * 1.2;
+    const idleX = Math.sin(time * 1.6) * 0.0016, idleY = Math.cos(time * 1.1) * 0.0016;
+    // 마우스 스웨이 (조준 시 감쇠 → 조준 안정성 유지)
+    const swayDk = Math.max(0, 1 - dt * 7);
+    this.vmSwayX *= swayDk; this.vmSwayY *= swayDk;
+    const swayK = 1 - k * 0.85;
     // 반동 감쇠
     this.vmRecoil = Math.max(0, this.vmRecoil - dt * 6);
-    // 장전 진행도
-    let relDip = 0, relTilt = 0;
+    // 계열별 장전 모션 (탄약 타이밍은 reload() 그대로)
+    let relDip = 0, relTilt = 0, relRoll = 0;
     if (this.reloading && this.vmReloadStart > 0) {
       const t = Math.min(1, (now - this.vmReloadStart) / this.vmReloadDur);
-      relDip = Math.sin(t * Math.PI) * 0.16; relTilt = Math.sin(t * Math.PI) * 0.55;
+      const id = WEAPONS[this.wi].id;
+      const arc = Math.sin(t * Math.PI);
+      if (id === 'M870') {
+        relDip = arc * 0.1 + Math.abs(Math.sin(t * Math.PI * 2)) * 0.06;
+        relTilt = arc * 0.4; relRoll = Math.sin(t * Math.PI * 2) * 0.22;
+      } else if (id === 'AWP') {
+        relDip = arc * 0.12; relTilt = arc * 0.35; relRoll = arc * 0.55;
+      } else if (id === 'DEAGLE') {
+        relDip = arc * 0.1; relTilt = arc * 0.3;
+        if (t > 0.8) relTilt -= (t - 0.8) / 0.2 * 0.18;
+      } else if (id === 'RPG') {
+        relDip = arc * 0.2; relTilt = arc * 0.7;
+      } else {
+        relDip = arc * 0.16; relTilt = arc * 0.55; relRoll = Math.sin(t * Math.PI * 2) * 0.28;
+      }
     }
     // 교체 딥
     if (this.vmSwitchT > 0) this.vmSwitchT -= dt;
     const swDip = this.vmSwitchT > 0 ? Math.sin((this.vmSwitchT / 0.28) * Math.PI) * 0.12 : 0;
+    // 스폰 드로우 (낮은 자세에서 들어올리기)
+    if (this.vmDraw > 0) this.vmDraw = Math.max(0, this.vmDraw - dt);
+    const drawK = this.vmDraw > 0 ? Math.sin((this.vmDraw / 0.45) * Math.PI) : 0;
+    // 무기 감상 (좌우 회전 + 기울기, 발사·판정 영향 없음)
+    let inspTilt = 0, inspRoll = 0;
+    if (this.vmInspect > 0) {
+      this.vmInspect = Math.max(0, this.vmInspect - dt);
+      const it = 1 - this.vmInspect / 1.6;
+      inspTilt = Math.sin(it * Math.PI) * 0.85; inspRoll = Math.sin(it * Math.PI * 2) * 0.7;
+    }
     // 착지·투척·베기 모션
     if (this.vmLand > 0) this.vmLand = Math.max(0, this.vmLand - dt * 4);
     if (this.vmThrow > 0) this.vmThrow = Math.max(0, this.vmThrow - dt * 3);
@@ -827,24 +903,26 @@ export class FPSGame {
     const landDip = this.vmLand * 0.09;
     const throwDip = this.vmThrow > 0 ? Math.sin((1 - this.vmThrow / 0.3) * Math.PI) * 0.1 : 0;
     const swipeK = this.vmSwipe > 0 ? Math.sin((1 - this.vmSwipe / 0.32) * Math.PI) : 0;
-    // 전력질주 시 총 내리기
+    // 전력질주 로우레디 (시각만, 발사 차단 없음)
     const sprinting = moving && (this.keys.ShiftLeft || this.keys.ShiftRight) && !this.aiming;
     this.vmSprintK += ((sprinting ? 1 : 0) - this.vmSprintK) * Math.min(1, dt * 8);
-    // 위치: 힙↔조준 보간 + 밥 + 반동 + 딥
+    // 위치: 힙↔조준 보간 + 밥 + 스웨이 + 반동 + 딥
     this.vmRig.position.lerpVectors(this.vmHipPos, this.vmAdsPos, k);
-    this.vmRig.position.x += bx; this.vmRig.position.y += by - relDip - swDip - landDip - throwDip - this.vmSprintK * 0.05;
+    this.vmRig.position.x += bx + idleX - this.vmSwayX * 0.028 * swayK + this.vmSprintK * 0.06;
+    this.vmRig.position.y += by + idleY + this.vmSwayY * 0.02 * swayK - relDip - swDip - landDip - throwDip - this.vmSprintK * 0.09 - drawK * 0.16;
     this.vmRig.position.z += this.vmRecoil * 0.09;
-    this.vmRig.rotation.x = this.vmRecoil * 0.14 - relTilt - (this.vmSwitchT > 0 ? 0.35 * Math.sin((this.vmSwitchT / 0.28) * Math.PI) : 0) - this.vmSprintK * 0.25;
-    this.vmRig.rotation.y = swipeK * 0.6;
-    this.vmRig.rotation.z = Math.sin(this.vmBob * 0.5) * 0.008;
+    this.vmRig.rotation.x = this.vmRecoil * 0.14 - relTilt - inspTilt - (this.vmSwitchT > 0 ? 0.35 * Math.sin((this.vmSwitchT / 0.28) * Math.PI) : 0) - this.vmSprintK * 0.42 - drawK * 0.5;
+    this.vmRig.rotation.y = swipeK * 0.6 + inspRoll - this.vmSwayX * 0.1 * swayK + relRoll;
+    this.vmRig.rotation.z = Math.sin(this.vmBob * 0.5) * 0.008 + Math.sin(time * 0.9) * 0.004 - this.vmSprintK * 0.18;
     // 섬광 감쇠 + 랜덤 회전 + 게틀링 총열 회전
     if (this.vmFlashT > 0) {
       this.vmFlashT -= dt;
       this.vmFlashMesh.visible = true;
       this.vmFlashMesh.rotation.z = Math.random() * Math.PI;
-      const s = 0.8 + Math.random() * 0.6; this.vmFlashMesh.scale.set(s, s, 1);
+      const s = (0.8 + Math.random() * 0.6) * (this.vmFlashScale || 1); this.vmFlashMesh.scale.set(s, s, 1);
       this.flash.intensity = 2.5;
     } else { this.vmFlashMesh.visible = false; this.flash.intensity = 0; }
+    this.updateCasings(dt);
     const bg = this.vmGuns[this.wi] && this.vmGuns[this.wi].userData.barrels;
     if (bg && this.firing && (this.gatSpin || 0) > 0.05) bg.rotation.z += dt * 28;
     // 조준 시 팔 모으기
@@ -1421,11 +1499,14 @@ export class FPSGame {
     }
     if (w.melee) { this.lastShot = now; this.meleeAttack(w); return; }
     if (a.mag <= 0) { this.reload(); return; }
+    this.vmInspect = 0;
     this.lastShot = now; a.mag--;
     if (w.rocket) { this.fireRocket(w); return; }
     // 뷰모델 반동 + 섬광 + 카메라 킥 + 사운드
     this.vmRecoil = Math.min(1.2, this.vmRecoil + (w.id === 'AWP' ? 1.0 : w.id === 'DEAGLE' ? 0.7 : 0.42));
     this.vmFlashT = 0.05;
+    this.vmFlashScale = w.id === 'AWP' ? 1.7 : w.id === 'DEAGLE' ? 1.25 : w.id === 'M870' ? 1.4 : 1;
+    this.ejectCasing();
     this.pitch += w.id === 'AWP' ? 0.012 : 0.004;
     this.shake = Math.min(0.7, this.shake + (w.id === 'AWP' ? 0.3 : 0.06));
     Sfx.shoot(w.id);
