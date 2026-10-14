@@ -103,4 +103,9 @@ header{display:flex;justify-content:space-between;align-items:center}
 #btn-tolobby{background:#22303f;color:#fff;border:1px solid #3a4f66;padding:11px;width:100%;border-radius:8px;cursor:pointer;margin-top:6px}
 #click-to-play{position:absolute;inset:0;background:rgba(0,0,0,.75);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer}
 #click-to-play button{pointer-events:auto;padding:10px 20px;border-radius:8px;border:none;background:#c0392b;color:#fff;cursor:pointer}
+#quick-settings{display:flex;gap:16px;align-items:center;background:rgba(0,0,0,.55);padding:10px 16px;border-radius:10px;pointer-events:auto;font-size:13px}
+#quick-settings label{display:flex;gap:8px;align-items:center;color:#e8edf2}
+#quick-settings input[type=range]{width:120px;margin:0}
+#quick-settings select{width:auto;margin:0;padding:6px}
+#quick-settings input[type=checkbox]{width:auto;margin:0}
 @media(max-width:800px){.mode-cards,.lobby-main{grid-template-columns:1fr}}

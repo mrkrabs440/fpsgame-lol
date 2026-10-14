@@ -96,13 +96,32 @@ export class FPSGame {
     this.crouch = false; this.eyeBase = 1.7; this.grounded = true;
     this.spectateIdx = 0; this.specName = '';
     this.vmLand = 0; this.vmThrow = 0; this.vmSwipe = 0; this.vmSprintK = 0;
+    this.rafId = 0; this.reloadTimer = 0; this.semiTimer = 0;
+    this.firing = false; this.aiming = false; this.semiLock = false;
+    this.settings = this.loadSettings();
+    this.sensitivity = this.settings.sensitivity;
+    this._hudSig = '';
+  }
+
+  loadSettings() {
+    let s = { sensitivity: 1.0, graphics: 'medium', shake: true };
+    try {
+      const raw = localStorage.getItem('fps_settings');
+      if (raw) s = { ...s, ...JSON.parse(raw) };
+    } catch {}
+    if (!(s.sensitivity >= 0.2 && s.sensitivity <= 3)) s.sensitivity = 1.0;
+    if (!['low', 'medium', 'high'].includes(s.graphics)) s.graphics = 'medium';
+    s.shake = s.shake !== false;
+    return s;
+  }
+  saveSettings() {
+    try { localStorage.setItem('fps_settings', JSON.stringify(this.settings)); } catch {}
   }
 
   start() {
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    this.applyGraphics();
     this.renderer.setSize(innerWidth, innerHeight);
-    this.renderer.shadowMap.enabled = true;
     this.scene = new THREE.Scene();
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.25;
@@ -129,11 +148,41 @@ export class FPSGame {
     this.clock = new THREE.Clock();
     this.netTimer = 0;
     this.loop = this.loop.bind(this);
-    requestAnimationFrame(this.loop);
+    this.rafId = requestAnimationFrame(this.loop);
+    this.wireSettingsUI();
     this.log(`[${this.room.name}] ${this.team}팀으로 참전!`, true);
   }
 
-  dispose() { this.disposed = true; window.onresize = null; }
+  applyGraphics() {
+    const q = this.settings.graphics;
+    const ratio = q === 'low' ? 1 : q === 'high' ? Math.min(window.devicePixelRatio || 1, 2) : Math.min(window.devicePixelRatio || 1, 1.5);
+    this.renderer.setPixelRatio(ratio);
+    this.renderer.shadowMap.enabled = q !== 'low';
+  }
+
+  dispose() {
+    this.disposed = true;
+    if (this.rafId) cancelAnimationFrame(this.rafId);
+    if (this.reloadTimer) clearTimeout(this.reloadTimer);
+    if (this.semiTimer) clearTimeout(this.semiTimer);
+    removeEventListener('keydown', this.kd);
+    removeEventListener('keyup', this.ku);
+    removeEventListener('mousemove', this.onMouseMove);
+    removeEventListener('mouseup', this.onMouseUp);
+    removeEventListener('blur', this.onBlur);
+    document.removeEventListener('visibilitychange', this.onVis);
+    document.removeEventListener('pointerlockchange', this.plc);
+    removeEventListener('contextmenu', this.noctx);
+    removeEventListener('resize', this.onResize);
+    this.canvas.removeEventListener('mousedown', this.onMouseDown);
+    try {
+      this.scene.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { if (m.map) m.map.dispose(); m.dispose(); });
+      });
+      this.renderer.dispose();
+    } catch {}
+  }
 
   // ================= 맵 조형물/지형 =================
   addBox(x, y, z, w, h, d, color, collide = true) {
@@ -585,10 +634,17 @@ export class FPSGame {
   }
 
   // ================= 입력 =================
+  clearStuckInputs() {
+    this.keys = {};
+    this.firing = false; this.aiming = false;
+  }
   bindInputs() {
     this.onKey = (down) => (e) => {
-      if (e.code === 'Tab') { e.preventDefault(); document.getElementById('scoreboard').classList.toggle('hidden', !down); this.drawScoreboard(); }
+      if (e.code === 'Tab') { e.preventDefault(); if (down) { document.getElementById('scoreboard').classList.toggle('hidden', false); this.drawScoreboard(); } else document.getElementById('scoreboard').classList.add('hidden'); return; }
       if (e.code === 'Enter' && down) { this.toggleChat(); return; }
+      if (this.chatOpen) return;
+      const shopOpen = !document.getElementById('shop').classList.contains('hidden');
+      if (shopOpen && e.code !== 'KeyB' && e.code !== 'Escape') return;
       this.keys[e.code] = down;
       if (!down) return;
       for (let k = 0; k < WEAPONS.length; k++) if (e.code === 'Digit' + (k + 1)) this.switchWeapon(k);
@@ -603,11 +659,16 @@ export class FPSGame {
     addEventListener('keydown', this.kd); addEventListener('keyup', this.ku);
     this.onMouseMove = (e) => {
       if (document.pointerLockElement !== this.canvas || !this.alive) return;
-      this.yaw -= e.movementX * 0.0022;
-      this.pitch -= e.movementY * 0.0022;
+      const s = 0.0022 * this.sensitivity;
+      this.yaw -= e.movementX * s;
+      this.pitch -= e.movementY * s;
       this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch));
     };
     addEventListener('mousemove', this.onMouseMove);
+    this.onBlur = () => this.clearStuckInputs();
+    addEventListener('blur', this.onBlur);
+    this.onVis = () => { if (document.hidden) this.clearStuckInputs(); };
+    document.addEventListener('visibilitychange', this.onVis);
     this.onMouseDown = (e) => {
       if (document.pointerLockElement !== this.canvas) { this.canvas.requestPointerLock(); return; }
       if (e.button === 0) this.firing = true;
@@ -619,13 +680,16 @@ export class FPSGame {
     addEventListener('contextmenu', this.noctx = (e) => e.preventDefault());
     document.getElementById('click-to-play').onclick = (e) => {
       if (e.target.id === 'btn-leave') return;
+      if (e.target.closest && e.target.closest('#quick-settings')) return;
       Sfx.init();
       this.canvas.requestPointerLock();
       document.getElementById('click-to-play').style.display = 'none';
     };
     document.addEventListener('pointerlockchange', this.plc = () => {
-      if (document.pointerLockElement !== this.canvas)
+      if (document.pointerLockElement !== this.canvas) {
         document.getElementById('click-to-play').style.display = 'flex';
+        this.clearStuckInputs();
+      }
     });
     document.getElementById('btn-leave').onclick = () => { this.socket.emit('room:leave'); location.reload(); };
     document.getElementById('btn-shop-close').onclick = (e) => { e.stopPropagation(); this.toggleShop(); };
@@ -640,10 +704,12 @@ export class FPSGame {
         this.canvas.requestPointerLock();
       }
     });
-    window.onresize = () => {
+    this.onResize = () => {
+      if (this.disposed) return;
       this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix();
       this.renderer.setSize(innerWidth, innerHeight);
     };
+    addEventListener('resize', this.onResize);
   }
 
   // 부활+오버레이 해제+보급 (라운드/매치 전환 공용)
@@ -651,6 +717,11 @@ export class FPSGame {
     if (this.disposed) return;
     this.killcam = null; this.firstBlood = false; this.defuseP = 0;
     this.spectateIdx = 0; this.specName = '';
+    this.reloading = false; this.firing = false; this.aiming = false;
+    this.gatSpin = 0; this.semiLock = false; this.stunT = 0; this.shake = 0;
+    if (this.reloadTimer) { clearTimeout(this.reloadTimer); this.reloadTimer = 0; }
+    if (this.semiTimer) { clearTimeout(this.semiTimer); this.semiTimer = 0; }
+    this.vmReloadStart = -1;
     this.spawnPlayer();
     document.getElementById('respawn-overlay').classList.add('hidden');
     this.updateHUD();
@@ -663,7 +734,7 @@ export class FPSGame {
   // 무료 무기 상점 (B, 건게임 제외)
   toggleShop() {
     const el = document.getElementById('shop');
-    if (!el) return;
+    if (!el || !this.alive) return;
     if (this.room.mode === 'gungame') { this.feed('건게임에선 상점 사용 불가!'); return; }
     if (el.classList.contains('hidden')) {
       document.exitPointerLock(); this.buildShop(); el.classList.remove('hidden');
@@ -677,7 +748,8 @@ export class FPSGame {
       e.stopPropagation();
       const i = parseInt(it.dataset.s);
       this.ammo[i] = { mag: WEAPONS[i].mag, reserve: WEAPONS[i].reserve };
-      this.reloading = false;
+      if (this.reloadTimer) { clearTimeout(this.reloadTimer); this.reloadTimer = 0; }
+      this.reloading = false; this.vmReloadStart = -1;
       this.switchWeapon(i); Sfx.capture(); this.buildShop();
     });
   }
@@ -688,21 +760,28 @@ export class FPSGame {
   }
 
   switchWeapon(i) {
-    if (this.room.mode === 'gungame') return; // 건게임은 킬 진도로 고정
-    if (this.reloading || i === this.wi || i < 0 || i >= WEAPONS.length) return;
+    if (this.room.mode === 'gungame') return;
+    if (!this.alive || this.reloading || i === this.wi || i < 0 || i >= WEAPONS.length) return;
+    if (this.reloadTimer) { clearTimeout(this.reloadTimer); this.reloadTimer = 0; }
+    this.reloading = false; this.vmReloadStart = -1;
+    this.gatSpin = 0; this.semiLock = false;
     this.wi = i; this.vmSwitchT = 0.28;
     this.vmGuns.forEach((g, k) => g.visible = k === i);
     this.updateVmFlashPos(); this.updateHUD(); Sfx.reload();
   }
   reload() {
     const w = WEAPONS[this.wi], a = this.ammo[this.wi];
-    if (w.melee) return;
+    if (w.melee || !this.alive) return;
     if (this.reloading || a.mag === w.mag || a.reserve <= 0) { if (a.mag === 0 && a.reserve <= 0) Sfx.dry(); return; }
     this.reloading = true;
     Sfx.reload();
     this.vmReloadDur = w.id === 'RPG' ? 3000 : w.id === 'AWP' ? 2500 : 1500;
     this.vmReloadStart = performance.now();
-    setTimeout(() => {
+    const wiAtStart = this.wi;
+    if (this.reloadTimer) clearTimeout(this.reloadTimer);
+    this.reloadTimer = setTimeout(() => {
+      this.reloadTimer = 0;
+      if (this.disposed || !this.alive || this.wi !== wiAtStart) { this.reloading = false; this.vmReloadStart = -1; return; }
       const need = w.mag - a.mag, take = Math.min(need, a.reserve);
       a.mag += take; a.reserve -= take; this.reloading = false; this.updateHUD();
     }, this.vmReloadDur);
@@ -1355,8 +1434,6 @@ export class FPSGame {
   // 단일 탄환 판정 (산탄은 펠릿마다 호출)
   scanShot(origin, dir, w) {
     const rc = new THREE.Raycaster(origin, dir, 0.1, 200);
-    // 벽 체크
-    const walls = this.colliders.map(box => ({ box }));
     let wallDist = 200;
     for (const c of this.colliders) {
       const hit = new THREE.Vector3();
@@ -1557,7 +1634,11 @@ export class FPSGame {
 
   onDeath(byEnemy, killer = null) {
     if (!this.alive) return;
-    this.alive = false; this.firing = false;
+    this.alive = false; this.firing = false; this.aiming = false;
+    this.reloading = false; this.defuseP = 0; this.gatSpin = 0; this.semiLock = false;
+    if (this.reloadTimer) { clearTimeout(this.reloadTimer); this.reloadTimer = 0; }
+    if (this.semiTimer) { clearTimeout(this.semiTimer); this.semiTimer = 0; }
+    this.vmReloadStart = -1;
     // 킬캠: 3초간 처치자를 3인칭으로 추적
     if (killer && killer.nickname) {
       this.killcam = { name: killer.nickname, until: performance.now() + 3000 };
@@ -1624,7 +1705,7 @@ export class FPSGame {
     this.camera.rotation.set(0, 0, 0, 'YXZ');
     this.camera.rotation.y = this.yaw; this.camera.rotation.x = this.pitch;
     // 피격/발사 화면 흔들림
-    if (this.shake > 0.003) {
+    if (this.shake > 0.003 && this.settings.shake) {
       this.camera.rotation.x += (Math.random() - 0.5) * this.shake * 0.05;
       this.camera.rotation.y += (Math.random() - 0.5) * this.shake * 0.05;
     }
@@ -1664,13 +1745,17 @@ export class FPSGame {
     const fmt = (v) => isFinite(v) ? v : '∞';
     document.getElementById('weapon-name').textContent = `${w.id} [1-${WEAPONS.length}]${this.reloading ? ' - 장전중...' : ''}`;
     document.getElementById('ammo').textContent = `${fmt(a.mag)} / ${fmt(a.reserve)}`;
-    const hb = document.getElementById('hotbar');
-    hb.innerHTML = WEAPONS.map((ww, i) => {
-      const aa = this.ammo[i];
-      const cls = `hslot${i === this.wi ? ' active' : ''}${this.reloading && i === this.wi ? ' reloading' : ''}`;
-      return `<div class="${cls}" data-w="${i}"><b>[${i + 1}] ${ww.id}</b><br><span class="mag">${fmt(aa.mag)}</span> / ${fmt(aa.reserve)}</div>`;
-    }).join('');
-    hb.querySelectorAll('.hslot').forEach(el => el.onclick = (e) => { e.stopPropagation(); this.switchWeapon(parseInt(el.dataset.w)); });
+    const sig = `${this.wi}|${this.reloading ? 1 : 0}|${this.ammo.map(x => (isFinite(x.mag) ? x.mag : 'I') + ':' + (isFinite(x.reserve) ? x.reserve : 'I')).join(',')}`;
+    if (sig !== this._hudSig) {
+      this._hudSig = sig;
+      const hb = document.getElementById('hotbar');
+      hb.innerHTML = WEAPONS.map((ww, i) => {
+        const aa = this.ammo[i];
+        const cls = `hslot${i === this.wi ? ' active' : ''}${this.reloading && i === this.wi ? ' reloading' : ''}`;
+        return `<div class="${cls}" data-w="${i}"><b>[${i + 1}] ${ww.id}</b><br><span class="mag">${fmt(aa.mag)}</span> / ${fmt(aa.reserve)}</div>`;
+      }).join('');
+      hb.querySelectorAll('.hslot').forEach(el => el.onclick = (e) => { e.stopPropagation(); this.switchWeapon(parseInt(el.dataset.w)); });
+    }
     document.getElementById('hp-fill').style.width = this.hp + '%';
     document.getElementById('hp-text').textContent = Math.max(0, Math.round(this.hp));
     document.getElementById('team-tag').textContent = `${this.nick} · ${this.team}팀 · K ${this.kills} / D ${this.deaths}`;
@@ -1786,18 +1871,50 @@ export class FPSGame {
     }
   }
 
+  wireSettingsUI() {
+    const sens = document.getElementById('set-sens');
+    const gfx = document.getElementById('set-graphics');
+    const shake = document.getElementById('set-shake');
+    const val = document.getElementById('set-sens-val');
+    if (!sens || !gfx || !shake) return;
+    sens.value = this.sensitivity;
+    gfx.value = this.settings.graphics;
+    shake.checked = this.settings.shake;
+    if (val) val.textContent = Number(this.sensitivity).toFixed(1) + 'x';
+    sens.oninput = () => {
+      this.sensitivity = Math.max(0.2, Math.min(3, Number(sens.value) || 1));
+      this.settings.sensitivity = this.sensitivity;
+      if (val) val.textContent = this.sensitivity.toFixed(1) + 'x';
+      this.saveSettings();
+    };
+    gfx.onchange = () => {
+      this.settings.graphics = gfx.value;
+      this.saveSettings();
+      this.applyGraphics();
+    };
+    shake.onchange = () => {
+      this.settings.shake = shake.checked;
+      if (!shake.checked) this.shake = 0;
+      this.saveSettings();
+    };
+  }
+
   // ================= 메인 루프 =================
   loop() {
     if (this.disposed) return;
-    requestAnimationFrame(this.loop);
+    this.rafId = requestAnimationFrame(this.loop);
     const dt = Math.min(0.05, this.clock.getDelta());
     const now = performance.now();
     const time = now / 1000;
     this.updateMove(dt);
-    if (this.firing) {
+    if (this.firing && this.alive) {
       const w = WEAPONS[this.wi];
       if (w.auto) this.tryShoot(now);
-      else if (!this.semiLock) { this.tryShoot(now); this.semiLock = true; setTimeout(() => this.semiLock = false, 60000 / w.rpm); }
+      else if (!this.semiLock) {
+        this.tryShoot(now); this.semiLock = true;
+        if (this.semiTimer) clearTimeout(this.semiTimer);
+        this.semiTimer = setTimeout(() => { this.semiTimer = 0; this.semiLock = false; }, 60000 / w.rpm);
+      }
     } else { this.gatSpin = 0; this.gatLast = 0; }
     // 원격 보간 → 봇 이동 → 인체 애니 일괄 (이동량 기반 걷기 모션)
     for (const [, r] of this.remotes) {

@@ -41,9 +41,19 @@ async function storeInit() {
       await pool.query('CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value JSONB)');
       const { rows } = await pool.query('SELECT key, value FROM kv');
       const m = Object.fromEntries(rows.map(r => [r.key, r.value]));
-      userCache = Array.isArray(m.users) ? m.users : [];
-      sessCacheObj = m.sessions || {};
-      roomsCacheArr = Array.isArray(m.rooms) ? m.rooms : [];
+      const asArr = (v) => {
+        if (Array.isArray(v)) return v;
+        if (typeof v === 'string') { try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch { return []; } }
+        return [];
+      };
+      const asObj = (v) => {
+        if (v && typeof v === 'object' && !Array.isArray(v)) return v;
+        if (typeof v === 'string') { try { const p = JSON.parse(v); return (p && typeof p === 'object' && !Array.isArray(p)) ? p : {}; } catch { return {}; } }
+        return {};
+      };
+      userCache = asArr(m.users);
+      sessCacheObj = asObj(m.sessions);
+      roomsCacheArr = asArr(m.rooms);
       pgOk = true;
       console.log('영속 저장소: Postgres 사용');
     } catch (e) { console.error('PG 접속 실패, 파일 모드로 대체:', e.message); }
@@ -67,7 +77,11 @@ async function storeFlush() {
     const up = (k, v) => pool.query('INSERT INTO kv(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value', [k, v]);
     if (storeDirty.users) { await up('users', JSON.stringify(userCache)); storeDirty.users = false; }
     if (storeDirty.sessions) { await up('sessions', JSON.stringify(sessCacheObj)); storeDirty.sessions = false; }
-    if (storeDirty.rooms) { await up('rooms', JSON.stringify(roomsCacheArr)); storeDirty.rooms = false; }
+    if (storeDirty.rooms) {
+      // markRoomsDirty만 찍힌 경우 캐시가 구버전일 수 있어 flush 직전 재생성
+      roomsCacheArr = [...rooms.values()].map(r => ({ ...r, order: [] }));
+      await up('rooms', JSON.stringify(roomsCacheArr)); storeDirty.rooms = false;
+    }
   } catch (e) { console.error('store flush 실패:', e.message); }
 }
 setInterval(storeFlush, 10000);
@@ -545,12 +559,33 @@ io.on('connection', (socket) => {
     }).filter(Boolean);
   }
 
+  const lastMsgAt = new Map();
+  function allow(key, ms) {
+    const now = Date.now();
+    const prev = lastMsgAt.get(key) || 0;
+    if (now - prev < ms) return false;
+    lastMsgAt.set(key, now);
+    return true;
+  }
+  function num(v, fb) { const n = Number(v); return Number.isFinite(n) ? n : fb; }
+  function clampPos(pos) {
+    return {
+      x: Math.max(-200, Math.min(200, num(pos.x, 0))),
+      y: Math.max(-50, Math.min(100, num(pos.y, 1.7))),
+      z: Math.max(-200, Math.min(200, num(pos.z, 0))),
+    };
+  }
+
   // 위치 동기화 (20Hz로 클라이언트가 전송)
   socket.on('player:state', (d) => {
     const p = players.get(socket.id);
     if (!p || !p.roomId || !d || !d.pos) return;
-    p.pos = d.pos; p.yaw = d.yaw; p.pitch = d.pitch || 0; p.wi = d.wi || 0; p.fy = d.fy || 0; p.crouch = !!d.crouch;
-    socket.to('room_' + p.roomId).emit('player:move', { nickname: p.nickname, team: p.team, pos: d.pos, yaw: d.yaw, hp: p.hp, alive: p.alive, pitch: p.pitch, wi: p.wi, fy: p.fy, crouch: p.crouch });
+    if (!allow(socket.id + ':state', 30)) return;
+    p.pos = clampPos(d.pos);
+    p.yaw = num(d.yaw, 0); p.pitch = Math.max(-1.6, Math.min(1.6, num(d.pitch, 0)));
+    p.wi = Math.max(0, Math.min(9, parseInt(d.wi) || 0));
+    p.fy = Math.max(-50, Math.min(100, num(d.fy, 0))); p.crouch = !!d.crouch;
+    socket.to('room_' + p.roomId).emit('player:move', { nickname: p.nickname, team: p.team, pos: p.pos, yaw: p.yaw, hp: p.hp, alive: p.alive, pitch: p.pitch, wi: p.wi, fy: p.fy, crouch: p.crouch });
   });
 
   // 피해 적용 공용 (총탄·수류탄): HP 차감→사망/데미지 브로드캐스트→리스폰
@@ -604,14 +639,19 @@ io.on('connection', (socket) => {
   socket.on('player:hit', (d) => {
     const { target, damage, weapon, stun } = d || {};
     if (!target || !damage) return;
+    if (!allow(socket.id + ':hit', 60)) return;
     const shooter = players.get(socket.id);
-    if (!shooter || !shooter.roomId) return;
+    if (!shooter || !shooter.roomId || !shooter.alive) return;
     const room = rooms.get(shooter.roomId);
     if (!room) return;
     const targetEntry = [...players.values()].find(pl => pl.roomId === shooter.roomId && pl.nickname === target && pl.alive);
     if (!targetEntry) return;
-    if (targetEntry.team === shooter.team) return; // 아군 오사 방지
-    strike(room, shooter, targetEntry, damage, weapon, !!stun);
+    if (targetEntry.team === shooter.team) return;
+    const dmg = Math.max(1, Math.min(200, Math.round(Number(damage) || 0)));
+    if (!dmg) return;
+    const dx = targetEntry.pos.x - shooter.pos.x, dy = (targetEntry.pos.y || 1.7) - (shooter.pos.y || 1.7), dz = targetEntry.pos.z - shooter.pos.z;
+    if (Math.sqrt(dx * dx + dy * dy + dz * dz) > 220) return;
+    strike(room, shooter, targetEntry, dmg, String(weapon || '').slice(0, 24), !!stun);
   });
 
   // 봇 공격 판정 (클라 봇이 원격 플레이어를 맞췄을 때, 킬러=BOT 이름)
@@ -636,6 +676,8 @@ io.on('connection', (socket) => {
   socket.on('player:blast', (d) => {
     const shooter = players.get(socket.id);
     if (!shooter || !shooter.roomId || !d || !d.pos) return;
+    if (!shooter.alive) return;
+    if (!allow(socket.id + ':blast', 400)) return;
     const room = rooms.get(shooter.roomId);
     if (!room) return;
     const radius = Math.min(Math.max(d.radius || 9, 1), 14);
@@ -671,11 +713,14 @@ io.on('connection', (socket) => {
   socket.on('objective:damage', (d) => {
     const amount = d && d.amount;
     if (!amount) return;
+    if (!allow(socket.id + ':obj', 200)) return;
     const p = players.get(socket.id);
-    if (!p || !p.roomId) return;
+    if (!p || !p.roomId || !p.alive) return;
     const room = rooms.get(p.roomId);
     if (!room || room.mode !== 'operation') return;
-    room.state.objectiveHp = Math.max(0, room.state.objectiveHp - amount);
+    const amt = Math.max(1, Math.min(300, Math.round(Number(amount) || 0)));
+    if (!amt) return;
+    room.state.objectiveHp = Math.max(0, room.state.objectiveHp - amt);
     io.to('room_' + room.id).emit('game:tick', { state: room.state });
     if (room.state.objectiveHp <= 0 && !room.state.targetDestroyed) {
       room.state.targetDestroyed = true;
@@ -718,6 +763,7 @@ io.on('connection', (socket) => {
   socket.on('chat:msg', (d) => {
     const p = players.get(socket.id);
     if (!p || !p.roomId || !d) return;
+    if (!allow(socket.id + ':chat', 400)) return;
     let text = String(d.text || '').slice(0, 120);
     if (!text) return;
     io.to('room_' + p.roomId).emit('chat:msg', { nickname: p.nickname, team: p.team, text });
@@ -726,6 +772,7 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     leaveRoom(socket);
     players.delete(socket.id);
+    for (const k of [...lastMsgAt.keys()]) if (k.startsWith(socket.id + ':')) lastMsgAt.delete(k);
   });
 });
 
