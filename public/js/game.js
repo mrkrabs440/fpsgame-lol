@@ -17,6 +17,20 @@ const WEAPONS = [
 // 건게임 무기 순서 (마지막 나이프킬이 우승)
 const GUNGAME_ORDER = [0, 2, 1, 3, 5, 4, 8, 7, 6];
 
+// 뷰모델 손 앵커 (리그 공간 z, 손이 총 그립·핸드가드에 닿는 지점)
+const HAND_ANCHOR = [
+  { grip: -0.30, fore: -0.54 },
+  { grip: -0.30, fore: -0.55 },
+  { grip: -0.24, fore: -0.38 },
+  { grip: -0.07, fore: -0.42 },
+  { grip: -0.12, fore: -0.57 },
+  { grip: -0.12, fore: -0.02 },
+  { grip: -0.10, fore: -0.10 },
+  { grip: -0.22, fore: -0.55 },
+  { grip: -0.12, fore: -0.02 },
+  { grip: -0.15, fore: -0.45 },
+];
+
 // 절차 사운드 (에셋 없이 WebAudio 합성)
 const Sfx = {
   ctx: null, master: null,
@@ -96,7 +110,7 @@ export class FPSGame {
     this.crouch = false; this.eyeBase = 1.7; this.grounded = true;
     this.spectateIdx = 0; this.specName = '';
     this.vmLand = 0; this.vmThrow = 0; this.vmSwipe = 0; this.vmSprintK = 0;
-    this.vmSwayX = 0; this.vmSwayY = 0; this.vmInspect = 0; this.vmDraw = 0; this.vmFlashScale = 1;
+    this.vmSwayX = 0; this.vmSwayY = 0; this.vmInspect = 0; this.vmDraw = 0; this.vmFlashScale = 1; this.vmRelT = 0;
     this.rafId = 0; this.reloadTimer = 0; this.semiTimer = 0;
     this.firing = false; this.aiming = false; this.semiLock = false;
     this.settings = this.loadSettings();
@@ -868,8 +882,10 @@ export class FPSGame {
     this.vmRecoil = Math.max(0, this.vmRecoil - dt * 6);
     // 계열별 장전 모션 (탄약 타이밍은 reload() 그대로)
     let relDip = 0, relTilt = 0, relRoll = 0;
+    this.vmRelT = 0;
     if (this.reloading && this.vmReloadStart > 0) {
       const t = Math.min(1, (now - this.vmReloadStart) / this.vmReloadDur);
+      this.vmRelT = t;
       const id = WEAPONS[this.wi].id;
       const arc = Math.sin(t * Math.PI);
       if (id === 'M870') {
@@ -928,6 +944,14 @@ export class FPSGame {
     this.updateCasings(dt);
     const bg = this.vmGuns[this.wi] && this.vmGuns[this.wi].userData.barrels;
     if (bg && this.firing && (this.gatSpin || 0) > 0.05) bg.rotation.z += dt * 28;
+    // 손을 총에 붙이기: 무기별 그립 앵커 + 조준 시 모으기 + 장전 시 왼손 이탈
+    const anchor = HAND_ANCHOR[this.wi] || HAND_ANCHOR[0];
+    this.vmArmL.visible = !WEAPONS[this.wi].melee;
+    const pump = (this.reloading && WEAPONS[this.wi].id === 'M870') ? Math.sin(this.vmRelT * Math.PI * 2) : 0;
+    this.vmArmR.position.set(0.17 - 0.07 * k, -0.075 - relDip * 0.15, anchor.grip + 0.49);
+    this.vmArmL.position.set(-0.17 + 0.09 * k, -0.075 - relDip * 0.55, anchor.fore + 0.53 + pump * 0.09);
+    this.vmArmR.rotation.x = 0.1 - relDip * 0.3;
+    this.vmArmL.rotation.x = 0.1 - relDip * 1.1 + pump * 0.25;
     // 조준 시 팔 모으기
     this.vmArmL.rotation.y += ((k > 0.5 ? 0.12 : 0.3) - this.vmArmL.rotation.y) * Math.min(1, dt * 8);
     this.vmArmR.rotation.y += ((k > 0.5 ? -0.1 : -0.26) - this.vmArmR.rotation.y) * Math.min(1, dt * 8);
