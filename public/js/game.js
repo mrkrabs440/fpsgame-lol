@@ -84,9 +84,10 @@ const Sfx = {
 };
 
 export class FPSGame {
-  constructor({ canvas, socket, room, team, nick, state }) {
+  constructor({ canvas, socket, room, team, nick, state, messi }) {
     this.canvas = canvas; this.socket = socket;
     this.room = room; this.team = team; this.nick = nick;
+    this.isMessi = !!messi;
     this.serverState = state;
     this.disposed = false;
     this.keys = {};
@@ -617,7 +618,7 @@ export class FPSGame {
     this.vmRig.position.copy(this.vmHipPos);
 
     // 팔 (팀 슬리브 + 피부 손): 카메라 아래쪽에서 시작해 화면 밖으로 이어지게 배치
-    const sleeveCol = this.nick === 'Tlqkfsusemfdk69' ? 0x75aadb : (this.team === 'alpha' || this.team === 'CT') ? 0x2a3d55 : 0x5a3a2a;
+    const sleeveCol = this.isMessi ? 0x75aadb : (this.team === 'alpha' || this.team === 'CT') ? 0x2a3d55 : 0x5a3a2a;
     const skin = new THREE.MeshLambertMaterial({ color: 0xd9a066 });
     const sleeve = new THREE.MeshLambertMaterial({ color: sleeveCol });
     this.vmSleeveMat = sleeve;
@@ -1115,7 +1116,7 @@ export class FPSGame {
     s.on('team:swap', (d) => {
       this.serverState = d.state;
       this.team = this.team === 'CT' ? 'T' : this.team === 'T' ? 'CT' : this.team;
-      if (this.vmSleeveMat && this.nick !== 'Tlqkfsusemfdk69') this.vmSleeveMat.color.set(this.team === 'CT' ? 0x2a3d55 : 0x5a3a2a);
+      if (this.vmSleeveMat && !this.isMessi) this.vmSleeveMat.color.set(this.team === 'CT' ? 0x2a3d55 : 0x5a3a2a);
       this.buildSelfBody();
       const ov = document.getElementById('round-overlay');
       ov.classList.remove('ct', 't');
@@ -1316,7 +1317,7 @@ export class FPSGame {
   // 관절형 병사 모델 (두부/몸통/팔2×2관절/다리2×2관절 + 장비)
   makeRemoteMesh(p, nickname = '?') {
     const friendly = (p.team === 'alpha' || p.team === 'CT');
-    const isMessi = nickname === 'Tlqkfsusemfdk69';
+    const isMessi = !!p.messi;
     const uni = isMessi ? 0x75aadb : friendly ? 0x2e4a68 : 0x6e3a2a;      // 전투복
     const vestC = isMessi ? 0xf5f5f5 : friendly ? 0x1d2c40 : 0x40231a;    // 방탄복
     const helmC = isMessi ? 0x2a1a0e : friendly ? 0x24344a : 0x4a2c1c;    // 헬멧
@@ -2207,9 +2208,10 @@ export class FPSGame {
 
   buildSelfBody() {
     if (this.selfBody) { this.scene.remove(this.selfBody.mesh); this.selfBody = null; }
-    const r = this.makeRemoteMesh({ team: this.team }, this.nick);
+    const r = this.makeRemoteMesh({ team: this.team, messi: this.isMessi }, this.nick);
     r.plate.sprite.visible = false;
     r.mesh.visible = false;
+    r.alive = !this.alive;
     r.lastPos.set(this.pos.x, 0, this.pos.z);
     this.selfBody = r;
   }
@@ -2243,10 +2245,10 @@ export class FPSGame {
     if (this.selfBody) {
       const sb = this.selfBody;
       if (this.tps) {
+        if (sb.alive !== this.alive) this.setRemoteAlive(sb, this.alive);
         sb.mesh.position.set(this.pos.x, this.pos.y - this.eyeBase, this.pos.z);
         sb.yaw = this.yaw; sb.targetPitch = this.pitch; sb.crouch = !!this.crouch; sb.team = this.team;
         this.setSoldierGun(sb, this.wi);
-        this.setRemoteAlive(sb, this.alive);
         this.animateSoldier(sb, dt, time);
       } else sb.mesh.visible = false;
     }
