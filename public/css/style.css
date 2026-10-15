@@ -60,6 +60,18 @@ header{display:flex;justify-content:space-between;align-items:center}
 #scope::after{content:'';position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(0,0,0,.8)}
 #scope::before{content:'';position:absolute;top:50%;left:0;right:0;height:1px;background:rgba(0,0,0,.8);z-index:1}
 #lowhp{position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at 50% 50%, transparent 55%, rgba(200,0,0,.5) 100%);animation:lowpulse 1s infinite}
+#vignette{position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at 50% 50%, transparent 62%, rgba(0,0,0,.42) 100%)}
+#kill-flash{position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at 50% 50%, rgba(255,60,40,.12) 30%, rgba(255,60,40,.4) 100%);opacity:0}
+#kill-flash.go{animation:killflash .5s ease-out}
+@keyframes killflash{0%{opacity:1}100%{opacity:0}}
+#dmg-dir{position:absolute;left:50%;top:50%;font-size:30px;color:#ff3020;text-shadow:0 0 6px #000;opacity:0;pointer-events:none}
+#kill-banner{position:absolute;left:50%;top:30%;transform:translateX(-50%);text-align:center;pointer-events:none;font-weight:bold}
+#kill-banner .kb-k{display:block;font-size:30px;color:#ff4655;letter-spacing:3px;text-shadow:0 0 14px rgba(255,70,85,.8),0 2px 4px #000}
+#kill-banner.hs .kb-k{color:#ffd23f;text-shadow:0 0 14px rgba(255,210,63,.9),0 2px 4px #000}
+#kill-banner .kb-v{display:block;font-size:26px;color:#fff;text-shadow:0 2px 6px #000}
+#kill-banner .kb-w{display:block;font-size:15px;color:#ffb3ba}
+#kill-banner.show{animation:killpop 1.4s ease-out forwards}
+@keyframes killpop{0%{opacity:0;transform:translateX(-50%) scale(.7)}12%{opacity:1;transform:translateX(-50%) scale(1.08)}25%{transform:translateX(-50%) scale(1)}75%{opacity:1}100%{opacity:0;transform:translateX(-50%) scale(1)}}
 @keyframes lowpulse{50%{opacity:.4}}
 #topbar{position:absolute;top:10px;left:50%;transform:translateX(-50%);text-align:center;background:rgba(0,0,0,.55);padding:8px 18px;border-radius:10px}
 #match-info{font-weight:bold;color:#ffb300}#timer{font-size:13px}#flag-bar{font-size:13px;margin-top:2px}
