@@ -480,25 +480,31 @@ export class FPSGame {
     if (dirty) this.sparks.geometry.attributes.position.needsUpdate = true;
   }
 
+  mapBound() { return this.mapName === 'delta_valley' ? 155 : this.mapName === 'desert_storm' ? 105 : 58; }
+
   spawnPlayer() {
     const key = this.room.mode === 'defuse' ? this.team : this.room.mode === 'ffa' ? 'ffa' : (this.team === 'alpha' ? 'alpha' : 'bravo');
     const list = (this.spawnPoints && (this.spawnPoints[key] || this.spawnPoints.alpha)) || [{ x: 0, z: 0 }];
     const s = list[Math.floor(Math.random() * list.length)];
     this.pos = this.findSpawn(s.x, s.z);
+    // 즉시 정착 (첫 프레임부터 끼임 없음)
+    this.resolveStuck();
     this.yaw = Math.random() * Math.PI * 2; this.pitch = 0;
     this.hp = 100; this.alive = true; this.nades = 2; this.vy = 0;
     this.gatSpin = 0; this.gatLast = 0;
   }
 
-  // 스폰: 조형물 콜라이더에 박히지 않는 자리 탐색 (이동불능 방지)
+  // 스폰: 조형물 콜라이더에 박히지 않는 자리 탐색 (맵 경계 내로 클램프)
   findSpawn(sx, sz) {
-    const fallback = new THREE.Vector3(sx, 1.7, sz);
-    for (let i = 0; i < 60; i++) {
-      const a = Math.random() * Math.PI * 2, r = 2 + Math.random() * 14;
-      const p = new THREE.Vector3(sx + Math.cos(a) * r, 1.7, sz + Math.sin(a) * r);
+    const B = this.mapBound();
+    const cl = (v) => Math.max(-B, Math.min(B, v));
+    const fallback = new THREE.Vector3(cl(sx), 1.7, cl(sz));
+    for (let i = 0; i < 150; i++) {
+      const a = Math.random() * Math.PI * 2, r = 2 + Math.random() * 16;
+      const p = new THREE.Vector3(cl(sx + Math.cos(a) * r), 1.7, cl(sz + Math.sin(a) * r));
       if (!this.collide(p)) return p;
     }
-    return fallback; // 실패 시 resolveStuck이 첫 프레임에 밀어냄
+    return fallback;
   }
 
   buildGun() {
@@ -1719,15 +1725,23 @@ export class FPSGame {
     for (const c of this.colliders) if (b.intersectsBox(c)) return true;
     return false;
   }
-  resolveStuck() { // 박힘 시 최소 침투축으로 밀어내기 (noclip 없이 탈출)
-    for (let i = 0; i < 4; i++) {
+  resolveStuck() { // 박힘 시 최소침투축으로 완전히 밀어내기 (진동 없이 탈출)
+    for (let i = 0; i < 40; i++) {
       const hit = this.firstCollider(this.pos);
       if (!hit) break;
-      const cx = (hit.min.x + hit.max.x) / 2 - this.pos.x;
-      const cz = (hit.min.z + hit.max.z) / 2 - this.pos.z;
-      if (Math.abs(cx) > Math.abs(cz)) this.pos.x += cx > 0 ? -0.15 : 0.15;
-      else this.pos.z += cz > 0 ? -0.15 : 0.15;
+      const px1 = (this.pos.x + 0.4) - hit.min.x;
+      const px2 = hit.max.x - (this.pos.x - 0.4);
+      const pz1 = (this.pos.z + 0.4) - hit.min.z;
+      const pz2 = hit.max.z - (this.pos.z - 0.4);
+      const m = Math.min(px1, px2, pz1, pz2);
+      if (m === px1) this.pos.x = hit.min.x - 0.41;
+      else if (m === px2) this.pos.x = hit.max.x + 0.41;
+      else if (m === pz1) this.pos.z = hit.min.z - 0.41;
+      else this.pos.z = hit.max.z + 0.41;
     }
+    const B = this.mapBound();
+    this.pos.x = Math.max(-B, Math.min(B, this.pos.x));
+    this.pos.z = Math.max(-B, Math.min(B, this.pos.z));
   }
   updateMove(dt) {
     if (!this.alive || document.pointerLockElement !== this.canvas) { this.isMoving = false; return; }
@@ -1750,7 +1764,7 @@ export class FPSGame {
     const nz = this.pos.clone(); nz.z += move.z;
     if (!this.collide(nz)) this.pos.z = nz.z;
     // 맵 경계
-    const B = this.mapName === 'delta_valley' ? 155 : this.mapName === 'desert_storm' ? 105 : 58;
+    const B = this.mapBound();
     this.pos.x = Math.max(-B, Math.min(B, this.pos.x));
     this.pos.z = Math.max(-B, Math.min(B, this.pos.z));
     // 점프/중력 (Space)
