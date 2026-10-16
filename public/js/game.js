@@ -69,9 +69,10 @@ const Sfx = {
 };
 
 export class FPSGame {
-  constructor({ canvas, socket, room, team, nick, state }) {
+  constructor({ canvas, socket, room, team, nick, skin, state }) {
     this.canvas = canvas; this.socket = socket;
     this.room = room; this.team = team; this.nick = nick;
+    this.mySkin = skin || 'default'; // 'black' = 특별 스킨
     this.serverState = state;
     this.disposed = false;
     this.keys = {};
@@ -510,8 +511,9 @@ export class FPSGame {
     this.vmRig.position.copy(this.vmHipPos);
 
     // 팔 (팀 슬리브 + 피부 손): 카메라 아래쪽에서 시작해 화면 밖으로 이어지게 배치
-    const sleeveCol = (this.team === 'alpha' || this.team === 'CT') ? 0x2a3d55 : 0x5a3a2a;
-    const skin = new THREE.MeshLambertMaterial({ color: 0xd9a066 });
+    const black = this.mySkin === 'black';
+    const sleeveCol = black ? 0x4a1a6a : (this.team === 'alpha' || this.team === 'CT') ? 0x2a3d55 : 0x5a3a2a;
+    const skin = new THREE.MeshLambertMaterial({ color: black ? 0x4a2c17 : 0xd9a066 });
     const sleeve = new THREE.MeshLambertMaterial({ color: sleeveCol });
     const mkArm = (x, len, rotY) => {
       const g = new THREE.Group();
@@ -1124,15 +1126,16 @@ export class FPSGame {
   // 관절형 병사 모델 (두부/몸통/팔2×2관절/다리2×2관절 + 장비)
   makeRemoteMesh(p, nickname = '?') {
     const friendly = (p.team === 'alpha' || p.team === 'CT');
-    const uni = friendly ? 0x2e4a68 : 0x6e3a2a;      // 전투복
-    const vestC = friendly ? 0x1d2c40 : 0x40231a;    // 방탄복
-    const helmC = friendly ? 0x24344a : 0x4a2c1c;    // 헬멧
-    const skin = new THREE.MeshLambertMaterial({ color: 0xd9a066 });
+    const black = (p.skin || 'default') === 'black';
+    const uni = black ? 0x4a1a6a : friendly ? 0x2e4a68 : 0x6e3a2a;      // 전투복 (특별: 보라)
+    const vestC = black ? 0xc9a227 : friendly ? 0x1d2c40 : 0x40231a;   // 방탄복 (특별: 금)
+    const helmC = black ? 0x141414 : friendly ? 0x24344a : 0x4a2c1c;   // 헬멧 (특별: 흑)
+    const skin = new THREE.MeshLambertMaterial({ color: black ? 0x4a2c17 : 0xd9a066 });
     const uniM = new THREE.MeshLambertMaterial({ color: uni });
     const vestM = new THREE.MeshLambertMaterial({ color: vestC });
     const helmM = new THREE.MeshLambertMaterial({ color: helmC });
     const darkM = new THREE.MeshLambertMaterial({ color: 0x191919 });
-    const bootM = new THREE.MeshLambertMaterial({ color: 0x2c2318 });
+    const bootM = new THREE.MeshLambertMaterial({ color: black ? 0x2a1040 : 0x2c2318 });
 
     const root = new THREE.Group();
     const B = (w, h, d, m, x, y, z) => {

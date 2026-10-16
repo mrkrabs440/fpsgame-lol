@@ -43,6 +43,7 @@ $('btn-login').onclick = async () => {
   token = j.token; myNick = j.nickname;
   localStorage.setItem('fps_token', token); localStorage.setItem('fps_nick', myNick);
   enterLobby();
+  if (j.seasonNotice) setTimeout(() => alert(j.seasonNotice), 400);
 };
 $('btn-logout').onclick = async () => {
   await fetch('/api/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
@@ -80,6 +81,11 @@ async function loadMe() {
     const r = await fetch('/api/me', { headers: { Authorization: 'Bearer ' + token } });
     const j = await r.json();
     if (j.ok) $('my-rating').textContent = `🏆 ${j.user.rating} ${j.user.tier}`;
+  } catch (e) {}
+  try {
+    const r = await fetch('/api/season');
+    const j = await r.json();
+    if (j.ok) $('season-tag').textContent = `📅 ${j.season} 시즌 (D-${j.daysLeft})`;
   } catch (e) {}
 }
 
@@ -159,7 +165,7 @@ socket.on('room:joined', (d) => {
     $('auth-screen').classList.add('hidden');
     $('game-screen').classList.remove('hidden');
     if (game) { try { game.dispose(); } catch (e) {} }
-    game = new FPSGame({ canvas: $('game-canvas'), socket, room: currentRoom, team: myTeam, nick: myNick, state: d.state });
+    game = new FPSGame({ canvas: $('game-canvas'), socket, room: currentRoom, team: myTeam, nick: myNick, skin: d.skin || 'default', state: d.state });
     game.start();
   } catch (e) {
     console.error(e);

@@ -113,7 +113,33 @@ function getTier(rating) {
   if (rating >= 1400) return '플래티넘';
   if (rating >= 1200) return '골드';
   if (rating >= 1000) return '실버';
-  return '브론즈';
+  if (rating >= 800) return '쓰레기';
+  if (rating >= 600) return '음식물쓰레기';
+  return '인간말종쓰레기버러지';
+}
+
+// ---------- 시즌제 (현실 1달 = 1시즌, 종료 시 최대 2티어까지만 강등) ----------
+const TIER_ORDER = ['인간말종쓰레기버러지', '음식물쓰레기', '쓰레기', '실버', '골드', '플래티넘', '다이아', '마스터', '그랜드마스터', '초월자', '신'];
+const TIER_FLOORS = [0, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2500];
+function seasonId(d = new Date()) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
+function checkSeasonRollover(u) {
+  const cur = seasonId();
+  if (!u.season) { u.season = cur; return null; } // 첫 기록: 강등 없음
+  if (u.season === cur) return null;
+  const from = u.rating || 1000;
+  const idx = Math.max(0, TIER_ORDER.indexOf(getTier(from)));
+  const floor2 = TIER_FLOORS[Math.max(0, idx - 2)];
+  const to = Math.max(floor2, from - 250, 0);
+  const res = { from, to, fromTier: TIER_ORDER[idx], toTier: getTier(to), oldSeason: u.season, season: cur };
+  u.rating = to;
+  u.season = cur;
+  return res;
+}
+
+// ---------- 특별 스킨 (Tlqkfsusemfdk69 전용 흑인 캐릭터) ----------
+function skinOf(u) {
+  if (!u) return 'default';
+  return (u.username === 'Tlqkfsusemfdk69' || u.nickname === 'Tlqkfsusemfdk69') ? 'black' : 'default';
 }
 
 // token -> userId
@@ -135,7 +161,7 @@ app.post('/api/register', async (req, res) => {
   if (users.find(u => u.username === username)) return res.status(409).json({ error: '이미 존재하는 아이디입니다.' });
   if (users.find(u => u.nickname === nickname)) return res.status(409).json({ error: '이미 존재하는 닉네임입니다.' });
   const hash = await bcrypt.hash(password, 10);
-  const user = { id: uuidv4(), username, nickname, passwordHash: hash, kills: 0, deaths: 0, wins: 0, losses: 0, matches: 0, mvp: 0, rating: 1000, createdAt: Date.now() };
+  const user = { id: uuidv4(), username, nickname, passwordHash: hash, kills: 0, deaths: 0, wins: 0, losses: 0, matches: 0, mvp: 0, rating: 1000, season: seasonId(), createdAt: Date.now() };
   users.push(user);
   saveUsers(users);
   return res.json({ ok: true, message: '회원가입 성공! 로그인하세요.' });
@@ -148,12 +174,16 @@ app.post('/api/login', async (req, res) => {
   if (!user) return res.status(401).json({ error: '아이디 또는 비밀번호가 틀렸습니다.' });
   const ok = await bcrypt.compare(password, user.passwordHash);
   if (!ok) return res.status(401).json({ error: '아이디 또는 비밀번호가 틀렸습니다.' });
+  const roll = checkSeasonRollover(user);
+  if (roll) saveUsers(users);
   // 같은 계정의 오래된 토큰 정리 (세션 누적 방지)
   for (const [tok, uid] of sessions) if (uid === user.id) sessions.delete(tok);
   const token = uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, '');
   sessions.set(token, user.id);
   saveSessions();
-  return res.json({ ok: true, token, nickname: user.nickname, username: user.username });
+  const out = { ok: true, token, nickname: user.nickname, username: user.username };
+  if (roll) out.seasonNotice = `📅 새 시즌(${roll.season})! ${roll.oldSeason} ${roll.fromTier}(${roll.from}) → ${roll.toTier}(${roll.to})`;
+  return res.json(out);
 });
 
 function authMiddleware(req, res, next) {
@@ -163,6 +193,7 @@ function authMiddleware(req, res, next) {
   const users = loadUsers();
   const user = users.find(u => u.id === sessions.get(token));
   if (!user) return res.status(401).json({ error: '세션 만료' });
+  if (checkSeasonRollover(user)) saveUsers(users);
   req.user = user; req.token = token;
   next();
 }
@@ -198,7 +229,7 @@ function roomPlayersById(roomId) {
   if (!room) return [];
   return room.order.map(sid => {
     const pl = players.get(sid);
-    return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw, pitch: pl.pitch || 0, wi: pl.wi || 0, fy: pl.fy || 0, crouch: !!pl.crouch } : null;
+    return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw, pitch: pl.pitch || 0, wi: pl.wi || 0, fy: pl.fy || 0, crouch: !!pl.crouch, skin: pl.skin || 'default' } : null;
   }).filter(Boolean);
 }
 
@@ -247,6 +278,12 @@ function publicRoom(r) {
 }
 
 app.get('/api/modes', (req, res) => res.json({ ok: true, modes: MODES }));
+app.get('/api/season', (req, res) => {
+  const now = new Date();
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const daysLeft = Math.ceil((end - now) / 86400000);
+  res.json({ ok: true, season: seasonId(now), daysLeft, tiers: TIER_ORDER });
+});
 app.get('/api/rooms', (req, res) => res.json({ ok: true, rooms: [...rooms.values()].map(publicRoom) }));
 
 app.post('/api/rooms', authMiddleware, (req, res) => {
@@ -349,6 +386,7 @@ function settleMatch(room, winner, winnerNick = null) {
     const u = users.find(x => x.id === pl.userId);
     if (!u) continue;
     ensureStats(u);
+    if (checkSeasonRollover(u)) dirty = true; // 월 경계 넘김 시 시즌 강등
     if (room.ranked && winner) {
       let won, delta;
       if (winnerNick) { won = pl.nickname === winnerNick; delta = won ? 25 : -15; }
@@ -523,7 +561,8 @@ io.on('connection', (socket) => {
     const users = loadUsers();
     const user = users.find(u => u.id === uid);
     if (!user) return socket.emit('auth:fail');
-    players.set(socket.id, { socketId: socket.id, userId: user.id, nickname: user.nickname, roomId: null, team: null, hp: 100, alive: true, kills: 0, deaths: 0, money: 800, pos: { x: 0, y: 1.7, z: 0 }, yaw: 0 });
+    if (checkSeasonRollover(user)) saveUsers(users);
+    players.set(socket.id, { socketId: socket.id, userId: user.id, nickname: user.nickname, skin: skinOf(user), roomId: null, team: null, hp: 100, alive: true, kills: 0, deaths: 0, money: 800, pos: { x: 0, y: 1.7, z: 0 }, yaw: 0 });
     socket.emit('auth:ok', { nickname: user.nickname });
     socket.emit('lobby:update', { rooms: [...rooms.values()].map(publicRoom) });
   });
@@ -537,7 +576,7 @@ io.on('connection', (socket) => {
     if (room.order.includes(socket.id)) {
       // 이미 입장 상태면 상태만 재전송 (중복입장 방지)
       socket.join('room_' + roomId);
-      return socket.emit('room:joined', { room: publicRoom(room), team: p.team, state: room.state, you: p.nickname });
+      return socket.emit('room:joined', { room: publicRoom(room), team: p.team, state: room.state, you: p.nickname, skin: p.skin || 'default' });
     }
     if (room.order.length >= room.maxPlayers) return socket.emit('error:msg', '방이 가득 찼습니다.');
     // 기존 방 떠나기
@@ -547,7 +586,7 @@ io.on('connection', (socket) => {
     p.hp = 100; p.alive = true;
     room.order.push(socket.id);
     socket.join('room_' + roomId);
-    socket.emit('room:joined', { room: publicRoom(room), team: p.team, state: room.state, you: p.nickname });
+    socket.emit('room:joined', { room: publicRoom(room), team: p.team, state: room.state, you: p.nickname, skin: p.skin || 'default' });
     io.to('room_' + roomId).emit('room:players', roomPlayers(roomId));
     io.to('room_' + roomId).emit('chat:msg', { sys: true, text: `▶ ${p.nickname} (${p.team}) 입장` });
     broadcastLobby();
@@ -579,7 +618,7 @@ io.on('connection', (socket) => {
     if (!room) return [];
     return room.order.map(sid => {
       const pl = players.get(sid);
-      return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw, pitch: pl.pitch || 0, wi: pl.wi || 0, fy: pl.fy || 0, crouch: !!pl.crouch } : null;
+      return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw, pitch: pl.pitch || 0, wi: pl.wi || 0, fy: pl.fy || 0, crouch: !!pl.crouch, skin: pl.skin || 'default' } : null;
     }).filter(Boolean);
   }
 
@@ -596,7 +635,7 @@ io.on('connection', (socket) => {
     p.pos = { x: cx(d.pos.x), y: cx(d.pos.y), z: cx(d.pos.z) };
     p.yaw = d.yaw; p.pitch = d.pitch || 0; p.wi = d.wi || 0; p.fy = d.fy || 0; p.crouch = !!d.crouch;
     if (!p.alive) return; // 사망자는 중계 안 함
-    socket.to('room_' + p.roomId).emit('player:move', { nickname: p.nickname, team: p.team, pos: p.pos, yaw: d.yaw, hp: p.hp, alive: p.alive, pitch: p.pitch, wi: p.wi, fy: p.fy, crouch: p.crouch });
+    socket.to('room_' + p.roomId).emit('player:move', { nickname: p.nickname, team: p.team, pos: p.pos, yaw: d.yaw, hp: p.hp, alive: p.alive, pitch: p.pitch, wi: p.wi, fy: p.fy, crouch: p.crouch, skin: p.skin || 'default' });
   });
 
   // 피해 적용 공용 (총탄·수류탄): HP 차감→사망/데미지 브로드캐스트→리스폰
