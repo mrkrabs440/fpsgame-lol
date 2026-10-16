@@ -105,6 +105,8 @@ function ensureStats(u) {
   return touched;
 }
 function getTier(rating) {
+  if (rating >= 2500) return '신';
+  if (rating >= 2200) return '초월자';
   if (rating >= 2000) return '그랜드마스터';
   if (rating >= 1800) return '마스터';
   if (rating >= 1600) return '다이아';
