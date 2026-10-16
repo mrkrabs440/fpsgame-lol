@@ -1422,12 +1422,8 @@ export class FPSGame {
     if (a.mag <= 0) { this.reload(); return; }
     this.lastShot = now; a.mag--;
     if (w.rocket) { this.fireRocket(w); return; }
-    // 뷰모델 반동 + 섬광 + 카메라 킥 + 사운드
-    this.vmRecoil = Math.min(1.2, this.vmRecoil + (w.id === 'AWP' ? 1.0 : w.id === 'DEAGLE' ? 0.7 : 0.42));
+    // 발사 이펙트 (반동 없음: 에임 고정)
     this.vmFlashT = 0.05;
-    this.pitch += w.id === 'AWP' ? 0.012 : 0.004;
-    this.recoilYaw += (Math.random() - 0.5) * (w.id === 'AWP' ? 0.03 : Math.max(0.004, w.spread * 0.9)); // 좌우 반동
-    this.shake = Math.min(0.7, this.shake + (w.id === 'AWP' ? 0.3 : 0.06));
     Sfx.shoot(w.id);
     // 타인 화면에 총구섬광 중계 (스로틀 80ms)
     if (now - this.lastShootEmit > 80) { this.lastShootEmit = now; this.socket.emit('player:shoot'); }
@@ -1507,9 +1503,7 @@ export class FPSGame {
 
   // RPG 발사: 로켓 투사체 + 대형 폭발
   fireRocket(w) {
-    this.vmRecoil = 1.2; this.vmFlashT = 0.06;
-    this.pitch += 0.02;
-    this.shake = Math.min(1, this.shake + 0.5);
+    this.vmFlashT = 0.06;
     Sfx.boom();
     if (performance.now() - this.lastShootEmit > 80) { this.lastShootEmit = performance.now(); this.socket.emit('player:shoot'); }
     const dir = new THREE.Vector3(); this.camera.getWorldDirection(dir);
@@ -1772,9 +1766,7 @@ export class FPSGame {
     this.camera.position.copy(this.pos);
     this.camera.rotation.set(0, 0, 0, 'YXZ');
     this.camera.rotation.y = this.yaw; this.camera.rotation.x = this.pitch;
-    // 좌우 반동 회복 (에임에 실제 반영)
-    if (Math.abs(this.recoilYaw) > 0.00005) { this.yaw += this.recoilYaw; this.camera.rotation.y = this.yaw; this.recoilYaw *= Math.max(0, 1 - 8 * dt); }
-    // 피격/발사 화면 흔들림
+    // 피격 화면 흔들림 (발사 반동 삭제됨)
     if (this.shake > 0.003) {
       this.camera.rotation.x += (Math.random() - 0.5) * this.shake * 0.05;
       this.camera.rotation.y += (Math.random() - 0.5) * this.shake * 0.05;
@@ -2010,7 +2002,7 @@ export class FPSGame {
     if (ch) {
       ch.style.opacity = (!this.alive || scoped) ? 0 : 1;
       if (this.vmRig) this.vmRig.visible = this.alive; // 킬캠/사망 시 뷰모델 숨김
-      const spread = 1 + (this.isMoving ? 0.35 : 0) + this.vmRecoil * 0.9 + (this.firing ? 0.35 : 0);
+      const spread = 1 + (this.isMoving ? 0.35 : 0);
       ch.style.transform = `translate(-50%,-50%) scale(${spread.toFixed(2)})`;
     }
     // 발소리
