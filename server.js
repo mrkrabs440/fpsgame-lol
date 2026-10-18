@@ -223,7 +223,7 @@ function roomPlayersById(roomId) {
   if (!room) return [];
   return room.order.map(sid => {
     const pl = players.get(sid);
-    return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw, pitch: pl.pitch || 0, wi: pl.wi || 0, fy: pl.fy || 0, crouch: !!pl.crouch } : null;
+    return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw, pitch: pl.pitch || 0, wi: pl.wi || 0, fy: pl.fy || 0, crouch: !!pl.crouch, sl: !!pl.sliding, eid: pl.eid || 0 } : null;
   }).filter(Boolean);
 }
 
@@ -612,7 +612,7 @@ io.on('connection', (socket) => {
     if (!room) return [];
     return room.order.map(sid => {
       const pl = players.get(sid);
-      return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw, pitch: pl.pitch || 0, wi: pl.wi || 0, fy: pl.fy || 0, crouch: !!pl.crouch } : null;
+      return pl ? { nickname: pl.nickname, team: pl.team, hp: pl.hp, alive: pl.alive, kills: pl.kills, deaths: pl.deaths, pos: pl.pos, yaw: pl.yaw, pitch: pl.pitch || 0, wi: pl.wi || 0, fy: pl.fy || 0, crouch: !!pl.crouch, sl: !!pl.sliding, eid: pl.eid || 0 } : null;
     }).filter(Boolean);
   }
 
@@ -628,8 +628,9 @@ io.on('connection', (socket) => {
     const cx = (v) => Math.max(-160, Math.min(160, v));
     p.pos = { x: cx(d.pos.x), y: cx(d.pos.y), z: cx(d.pos.z) };
     p.yaw = d.yaw; p.pitch = d.pitch || 0; p.wi = d.wi || 0; p.fy = d.fy || 0; p.crouch = !!d.crouch;
+    p.sliding = !!d.sl; p.eid = Math.max(0, Math.min(999999, parseInt(d.eid, 10) || 0)); // 슬라이드/이모트(신호 순번)
     if (!p.alive) return; // 사망자는 중계 안 함
-    socket.to('room_' + p.roomId).emit('player:move', { nickname: p.nickname, team: p.team, pos: p.pos, yaw: d.yaw, hp: p.hp, alive: p.alive, pitch: p.pitch, wi: p.wi, fy: p.fy, crouch: p.crouch });
+    socket.to('room_' + p.roomId).emit('player:move', { nickname: p.nickname, team: p.team, pos: p.pos, yaw: d.yaw, hp: p.hp, alive: p.alive, pitch: p.pitch, wi: p.wi, fy: p.fy, crouch: p.crouch, sl: p.sliding, eid: p.eid });
   });
 
   // 피해 적용 공용 (총탄·수류탄): HP 차감→사망/데미지 브로드캐스트→리스폰

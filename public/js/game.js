@@ -97,6 +97,12 @@ export class FPSGame {
     this.crouch = false; this.eyeBase = 1.7; this.grounded = true;
     this.spectateIdx = 0; this.specName = '';
     this.vmLand = 0; this.vmThrow = 0; this.vmSwipe = 0; this.vmSprintK = 0;
+    // 슬라이드 / 이모트 / 무기 검사
+    this.sliding = false; this.slideT = 0; this.slideSpeed = 0; this.slideK = 0;
+    this.slideDir = new THREE.Vector3(0, 0, -1);
+    this.moveSpeed = 0;
+    this.emote = ''; this.emoteT = 0; this.emoteId = 0;
+    this.inspectT = 0;
   }
 
   start() {
@@ -531,6 +537,36 @@ export class FPSGame {
     this.vmArmL = mkArm(-0.17, 0.5, 0.3);
     this.vmArmR = mkArm(0.17, 0.46, -0.26);
 
+    // '엘을 가져가' 제스처용 팔 + L손 (검지 아래 + 엄지 옆 = L 모양, 기본 숨김)
+    this.vmLpose = new THREE.Group();
+    this.vmLpose.visible = false;
+    this.vmRig.add(this.vmLpose);
+    const lFore = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.095, 0.36), sleeve);
+    lFore.position.z = -0.18; lFore.castShadow = true; this.vmLpose.add(lFore);
+    const lCuff = new THREE.Mesh(new THREE.BoxGeometry(0.105, 0.105, 0.04), sleeve); // 소매 cuff
+    lCuff.position.z = -0.35; this.vmLpose.add(lCuff);
+    // 손목 → 회전 가능한 손 그룹
+    this.vmLHand = new THREE.Group();
+    this.vmLHand.position.z = -0.37;
+    this.vmLpose.add(this.vmLHand);
+    const palm = new THREE.Mesh(new THREE.BoxGeometry(0.088, 0.1, 0.085), skin);
+    palm.position.z = -0.055; this.vmLHand.add(palm);
+    // 검지: 아래로 길게 뻗음 (L의 세로 획)
+    const lFinger = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.2, 0.036), skin);
+    lFinger.position.set(0.004, -0.14, -0.055); this.vmLHand.add(lFinger);
+    const lKnuckle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.05, 0.045), skin);
+    lKnuckle.position.set(0.004, -0.055, -0.05); this.vmLHand.add(lKnuckle);
+    // 엄지: 왼쪽으로 수평 (L의 가로 획)
+    const lThumb = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.038, 0.038), skin);
+    lThumb.position.set(-0.072, -0.005, -0.055); this.vmLHand.add(lThumb);
+    // 나머지 3손가락은 주먹으로 접힘
+    for (let i = 0; i < 3; i++) {
+      const f = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.052, 0.038), skin);
+      f.position.set(0.038, -0.03, -0.038 + i * 0.038);
+      f.rotation.z = 0.5;
+      this.vmLHand.add(f);
+    }
+
     // 무기 7종 실물형
     this.vmGuns = WEAPONS.map((_, i) => this.buildGunMesh(i));
     this.vmGuns.forEach((g, i) => { g.visible = i === this.wi; this.vmRig.add(g); });
@@ -656,6 +692,8 @@ export class FPSGame {
       if (e.code === 'KeyR') this.reload();
       if (!e.repeat && e.code === 'KeyB') this.toggleShop();
       if (!e.repeat && e.code === 'KeyG') this.throwGrenadeMine();
+      if (!e.repeat && e.code === 'KeyL') this.playEmote('L');
+      if (!e.repeat && e.code === 'KeyF') this.startInspect();
       if (!e.repeat && e.code === 'Digit0') this.switchWeapon(9);
       if (e.code === 'KeyE') this.interact();
     };
@@ -827,12 +865,62 @@ export class FPSGame {
     // 전력질주 시 총 내리기
     const sprinting = moving && (this.keys.ShiftLeft || this.keys.ShiftRight) && !this.aiming;
     this.vmSprintK += ((sprinting ? 1 : 0) - this.vmSprintK) * Math.min(1, dt * 8);
+    // 슬라이드 보간 (급정지 방지)
+    this.slideK += ((this.sliding ? 1 : 0) - this.slideK) * Math.min(1, dt * 11);
+    const sk = this.slideK;
+    // 이모트 상태 (L = 엘을 가져가)
+    if (this.emoteT > 0) { this.emoteT = Math.max(0, this.emoteT - dt); if (this.emoteT === 0) this.emote = ''; }
+    const emoting = this.emote === 'L' && this.emoteT > 0 && this.alive;
     // 위치: 힙↔조준 보간 + 밥 + 딥
     this.vmRig.position.lerpVectors(this.vmHipPos, this.vmAdsPos, k);
-    this.vmRig.position.x += bx; this.vmRig.position.y += by - relDip - swDip - landDip - throwDip - this.vmSprintK * 0.05;
-    this.vmRig.rotation.x = -relTilt - (this.vmSwitchT > 0 ? 0.35 * Math.sin((this.vmSwitchT / 0.28) * Math.PI) : 0) - this.vmSprintK * 0.25;
-    this.vmRig.rotation.y = swipeK * 0.6;
-    this.vmRig.rotation.z = Math.sin(this.vmBob * 0.5) * 0.008;
+    this.vmRig.position.x += bx - sk * 0.05;
+    this.vmRig.position.y += by - relDip - swDip - landDip - throwDip - this.vmSprintK * 0.05 - sk * 0.06;
+    this.vmRig.position.z += sk * 0.04;
+    this.vmRig.rotation.x = -relTilt - (this.vmSwitchT > 0 ? 0.35 * Math.sin((this.vmSwitchT / 0.28) * Math.PI) : 0) - this.vmSprintK * 0.25 + sk * 0.42;
+    this.vmRig.rotation.y = swipeK * 0.6 - sk * 0.18;
+    this.vmRig.rotation.z = Math.sin(this.vmBob * 0.5) * 0.008 + sk * 0.2;
+    // 무기 검사(Inspect): 총을 돌려 단면 보여주기
+    const gun = this.vmGuns[this.wi];
+    if (this.inspectT > 0) this.inspectT = Math.max(0, this.inspectT - dt);
+    if (gun) {
+      if (this.inspectT > 0) {
+        const arc = Math.sin((1 - this.inspectT / 1.6) * Math.PI);
+        gun.rotation.set(arc * 0.85, arc * 1.5, arc * 0.45);
+        gun.position.set(arc * 0.04, -arc * 0.03, arc * 0.06);
+      } else if (gun.rotation.x !== 0 || gun.rotation.y !== 0 || gun.rotation.z !== 0 || gun.position.z !== 0) {
+        gun.rotation.set(0, 0, 0); gun.position.set(0, 0, 0);
+      }
+    }
+    // 이모트 표시: 총·팔 숨기고 L 제스처 표시
+    this.vmGuns.forEach((g, k2) => { g.visible = (k2 === this.wi) && !emoting; });
+    this.vmArmL.visible = !emoting; this.vmArmR.visible = !emoting;
+    this.vmLpose.visible = emoting;
+    if (emoting) {
+      // 실제 'Take The L' 동작: 팔 앞으로 뻗어 손을 아래로 가리키며 좌우 흔들고 손목을 천천히 회전
+      const tb = now / 1000;
+      const age = 2.4 - this.emoteT;                      // 이모트 경과시간
+      const intro = Math.min(1, age / 0.18);              // 등장 (처음엔 총자리에 있다 밀려나옴)
+      const out = Math.min(1, this.emoteT / 0.22);         // 퇴장
+      const ease = intro * out;
+      const bob = Math.sin(tb * 5.5);
+      const wob = Math.sin(tb * 2.2);
+      this.vmLpose.position.set(
+        0.2 - 0.1 * ease + bob * 0.018,
+        -0.34 + 0.07 * ease + bob * 0.022,
+        -0.34 - 0.12 * ease
+      );
+      this.vmLpose.rotation.set(
+        -0.15 - 0.25 * ease + bob * 0.04,
+        0.1 + 0.25 * ease + wob * 0.07,
+        0.18 - 0.1 * ease + bob * 0.06
+      );
+      // 손목: 처음엔 펴졌다가 꺾이며 L 모양 완성 + 미세 흔들림
+      this.vmLHand.rotation.set(
+        -0.9 * (1 - ease),
+        0.15 * ease + Math.sin(tb * 5.5) * 0.05,
+        0.55 * (1 - ease) - wob * 0.12 * ease
+      );
+    }
     // 섬광 감쇠 + 랜덤 회전 + 게틀링 총열 회전
     if (this.vmFlashT > 0) {
       this.vmFlashT -= dt;
@@ -846,6 +934,28 @@ export class FPSGame {
     // 조준 시 팔 모으기
     this.vmArmL.rotation.y += ((k > 0.5 ? 0.12 : 0.3) - this.vmArmL.rotation.y) * Math.min(1, dt * 8);
     this.vmArmR.rotation.y += ((k > 0.5 ? -0.1 : -0.26) - this.vmArmR.rotation.y) * Math.min(1, dt * 8);
+  }
+
+  // 이모트: L = "엘을 가져가" (검지 아래 + 엄지 옆 L 모양)
+  playEmote(name) {
+    if (!this.alive || document.pointerLockElement !== this.canvas) return;
+    if (this.emoteT > 0.4) return; // 연속 spam 방지
+    this.emote = name; this.emoteT = 2.4; this.emoteId++;
+    this.reloading = false; this.aiming = false; this.firing = false;
+    Sfx.beep();
+    this.feed('👌 엘을 가져가!');
+  }
+  // 무기 검사 애니메이션 (F)
+  startInspect() {
+    if (!this.alive || this.emoteT > 0) return;
+    if (this.inspectT > 0) return;
+    this.inspectT = 1.6;
+    Sfx.tone(420, 0.05, 'triangle', 0.12, 700);
+  }
+  // 슬라이드 종료
+  endSlide() {
+    if (!this.sliding) return;
+    this.sliding = false; this.slideT = 0; this.slideSpeed = 0;
   }
 
   // 수류탄 (G): 포물선 투척 → 2초 신관 → 범위 피해
@@ -976,7 +1086,8 @@ export class FPSGame {
         }
         const r = this.remotes.get(p.nickname);
         r.targetPos = new THREE.Vector3(cx, p.fy || 0, cz); r.yaw = p.yaw; r.team = p.team;
-        r.targetPitch = p.pitch || 0; r.crouch = !!p.crouch;
+        r.targetPitch = p.pitch || 0; r.crouch = !!p.crouch; r.sliding = !!p.sl;
+        this.applyRemoteEmote(r, p.eid);
         if (p.wi !== undefined) this.setSoldierGun(r, p.wi);
         if (r.hp !== p.hp) { r.hp = p.hp; this.drawNameplate(r.plate, p.nickname, p.team === this.team, p.hp); }
         r.kills = p.kills || 0; r.deaths = p.deaths || 0;
@@ -996,7 +1107,8 @@ export class FPSGame {
       }
       const r = this.remotes.get(p.nickname);
       r.targetPos = new THREE.Vector3(cx, p.fy || 0, cz); r.yaw = p.yaw;
-      r.targetPitch = p.pitch || 0; r.crouch = !!p.crouch;
+      r.targetPitch = p.pitch || 0; r.crouch = !!p.crouch; r.sliding = !!p.sl;
+      this.applyRemoteEmote(r, p.eid);
       if (p.wi !== undefined) this.setSoldierGun(r, p.wi);
       if (r.hp !== p.hp) { r.hp = p.hp; this.drawNameplate(r.plate, p.nickname, r.team === this.team, p.hp); }
       this.setRemoteAlive(r, p.alive);
@@ -1174,7 +1286,14 @@ export class FPSGame {
       el.add(B(0.1, 0.3, 0.11, uniM, 0, -0.15, 0));
       const hand = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 5), skin);
       hand.position.set(0, -0.32, 0); el.add(hand);
-      return { sh, el };
+      // '엘을 가져가' 제스처용 L손 (검지 아래 + 엄지 옆, 기본 숨김)
+      const lhand = new THREE.Group();
+      lhand.position.set(0, -0.32, 0); lhand.visible = false; el.add(lhand);
+      const lf = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.17, 0.03), skin);
+      lf.position.set(0, -0.115, 0); lhand.add(lf);
+      const lt = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.032, 0.032), skin);
+      lt.position.set(-0.062, 0, 0); lhand.add(lt);
+      return { sh, el, hand, lhand };
     };
     const armL = mkArm(-1), armR = mkArm(1);
     // 소총 (가슴 전방): 든 무기별 외형 전환
@@ -1213,7 +1332,8 @@ export class FPSGame {
       yaw: 0, headPitch: 0, targetPitch: 0, gunIdx: 0,
       hp: 100, alive: true, team: p.team, isBot: false,
       kills: 0, deaths: 0,
-      phase: Math.random() * 6, flashT: 0, deadT: 0, speed: 0, hitT: 0
+      phase: Math.random() * 6, flashT: 0, deadT: 0, speed: 0, hitT: 0,
+      sliding: false, emote: '', emoteT: 0, emoteId: 0
     };
   }
 
@@ -1224,6 +1344,12 @@ export class FPSGame {
     if (r.gunIdx === idx && r.gunMeshes[v].visible) return;
     r.gunIdx = idx;
     for (const k of Object.keys(r.gunMeshes)) r.gunMeshes[k].visible = (k === v);
+  }
+
+  // 원격 이모트 수신 (eid 증가분만 재생 → 20Hz 중계에서도 1회만)
+  applyRemoteEmote(r, eid) {
+    if (!eid || eid === r.emoteId) return;
+    r.emoteId = eid; r.emote = 'L'; r.emoteT = 2.4;
   }
 
   // 사망 연출용 가시성 제어 (쓰러짐 1.2초 재생 후 숨김)
@@ -1288,7 +1414,36 @@ export class FPSGame {
       r.legL.knee.rotation.x = -(1.4 + Math.max(0, -Math.sin(r.phase)) * 0.4);
       r.legR.knee.rotation.x = -(1.4 + Math.max(0, Math.sin(r.phase)) * 0.4);
     }
-    r.plate.sprite.position.y += (((r.crouch && r.alive) ? 1.7 : 2.3) - r.plate.sprite.position.y) * Math.min(1, dt * 8);
+    // 슬라이드 자세 (몸 낮추고 다리 앞으로 뻗음)
+    if (r.sliding && r.alive) {
+      r.torsoG.position.y = 0.4;
+      r.torsoG.rotation.x = -0.9;
+      r.legL.hip.rotation.x = -1.3; r.legR.hip.rotation.x = -1.15;
+      r.legL.knee.rotation.x = -0.2; r.legR.knee.rotation.x = -0.1;
+      r.armL.sh.rotation.x = 0.3; r.armR.sh.rotation.x = 0.15;
+      r.armL.sh.rotation.z = 0.45; r.armR.sh.rotation.z = -0.35;
+      r.armL.el.rotation.x = -0.55; r.armR.el.rotation.x = -0.45;
+    }
+    // '엘을 가져가' 이모트 (오른팔 앞으로 뻗어 손등으로 아래를 가리킴)
+    if (r.emoteT > 0) { r.emoteT = Math.max(0, r.emoteT - dt); if (r.emoteT === 0) r.emote = ''; }
+    const rEmote = r.emote === 'L' && r.emoteT > 0 && r.alive;
+    if (rEmote) {
+      const b = Math.sin(time * 5.5) * 0.07;
+      r.gunG.visible = false;
+      // 위팔 앞쪽으로 + 전완 수직 아래로 (총 0.15rad ≈ 수직) → L 모양이 아래를 가리킴
+      r.armR.sh.rotation.set(0.9 + b, -0.35, -0.55);
+      r.armR.el.rotation.set(-0.75 + b * 0.5, 0, 0);
+      r.armR.lhand.visible = true; r.armR.hand.visible = false;
+      r.armL.sh.rotation.set(0.3, 0.25, 0.35);
+      r.armL.el.rotation.set(-1.0, 0, 0);
+      r.torsoG.rotation.x = -0.04;
+      r.torsoG.position.y = 1.05;
+      r.headG.rotation.x = -0.15;
+    } else {
+      if (r.gunG.visible === false) r.gunG.visible = true;
+      if (r.armR.lhand.visible) { r.armR.lhand.visible = false; r.armR.hand.visible = true; }
+    }
+    r.plate.sprite.position.y += (((r.sliding && r.alive) ? 1.1 : (r.crouch && r.alive) ? 1.7 : 2.3) - r.plate.sprite.position.y) * Math.min(1, dt * 8);
     // 총구 섬광 + 총 반동
     if (r.flashT > 0) {
       r.flashT -= dt;
@@ -1420,7 +1575,7 @@ export class FPSGame {
     }
     if (w.melee) { this.lastShot = now; this.meleeAttack(w); return; }
     if (a.mag <= 0) { this.reload(); return; }
-    this.lastShot = now; a.mag--;
+    this.lastShot = now; a.mag--; // 사격해도 슬라이드는 유지
     if (w.rocket) { this.fireRocket(w); return; }
     // 발사 이펙트 (반동 없음: 에임 고정)
     this.vmFlashT = 0.05;
@@ -1738,38 +1893,64 @@ export class FPSGame {
     this.pos.z = Math.max(-B, Math.min(B, this.pos.z));
   }
   updateMove(dt) {
-    if (!this.alive || document.pointerLockElement !== this.canvas) { this.isMoving = false; return; }
-    this.crouch = !!this.keys.KeyC;
-    const eyeBase = this.crouch ? 1.15 : 1.7;
-    const sprint = (this.keys.ShiftLeft || this.keys.ShiftRight) && !this.crouch;
-    let speed = sprint ? 9 : this.crouch ? 2.8 : 5.5;
-    if (this.stunT > 0) speed *= 0.35; // 감전 둔화
+    if (!this.alive || document.pointerLockElement !== this.canvas) { this.isMoving = false; this.endSlide(); return; }
+    const wasGrounded = this.grounded; // 슬라이드 판정용 (눈높이 하강 중 false가 되어도 유지)
+    const sprintKey = !!(this.keys.ShiftLeft || this.keys.ShiftRight);
+    // 슬라이드 시작: 달리기로 충분히 달린 상태에서 C
+    if (!this.sliding && sprintKey && this.keys.KeyC && this.moveSpeed > 6.5 && wasGrounded && this.stunT <= 0) {
+      const fw = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+      this.slideDir.copy(this.moveSpeed > 0.1 ? fw : fw);
+      this.sliding = true; this.slideT = 1.15;
+      this.slideSpeed = Math.max(this.moveSpeed, 10) + 2.2;
+      this.pos.y = Math.min(this.pos.y, 0.7); this.vy = 0; // 슬라이드 진입 즉시 몸 낮춤
+      Sfx.step(); this.feed('🛝 슬라이드!');
+    }
+    this.crouch = !!this.keys.KeyC || this.sliding;
+    const eyeBase = this.sliding ? 0.7 : this.crouch ? 1.15 : 1.7;
+    const sprint = sprintKey && !this.crouch;
+    let speed;
+    if (this.sliding) {
+      this.slideT -= dt;
+      this.slideSpeed = Math.max(2.6, this.slideSpeed - 7 * dt);
+      speed = this.stunT > 0 ? this.slideSpeed * 0.35 : this.slideSpeed;
+    } else speed = sprint ? 9 : this.crouch ? 2.8 : 5.5;
+    if (this.stunT > 0 && !this.sliding) speed *= 0.35; // 감전 둔화
     const f = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     const r = new THREE.Vector3(-f.z, 0, f.x);
     const move = new THREE.Vector3();
     if (this.keys.KeyW) move.add(f); if (this.keys.KeyS) move.sub(f);
     if (this.keys.KeyD) move.add(r); if (this.keys.KeyA) move.sub(r);
     this.isMoving = move.length() > 0;
-    if (this.isMoving) move.normalize().multiplyScalar(speed * dt);
+    if (this.sliding) {
+      // 슬라이드는 진행방향 고정 + 약한 조향
+      if (this.isMoving) { this.slideDir.lerp(move.normalize(), Math.min(1, dt * 4.5)).normalize(); }
+      move.copy(this.slideDir).multiplyScalar(speed * dt);
+      this.isMoving = true;
+    } else if (this.isMoving) move.normalize().multiplyScalar(speed * dt);
     // 박힘 시 밀어내기 후 이동 (noclip 없이 탈출 보장)
     this.resolveStuck();
+    const px0 = this.pos.x, pz0 = this.pos.z;
     const nx = this.pos.clone(); nx.x += move.x;
     if (!this.collide(nx)) this.pos.x = nx.x;
     const nz = this.pos.clone(); nz.z += move.z;
     if (!this.collide(nz)) this.pos.z = nz.z;
+    // 실제 이동 속도 (슬라이드 발동 조건·조준 정확도용)
+    this.moveSpeed = dt > 0 ? Math.hypot(this.pos.x - px0, this.pos.z - pz0) / dt : 0;
     // 맵 경계
     const B = this.mapBound();
     this.pos.x = Math.max(-B, Math.min(B, this.pos.x));
     this.pos.z = Math.max(-B, Math.min(B, this.pos.z));
-    // 점프/중력 (Space)
-    if (this.keys.Space && this.pos.y <= eyeBase + 0.01) { this.vy = 5.4; Sfx.step(); }
-    this.vy -= 14 * dt;
+    // 점프/중력 (Space) — 슬라이드는 점프로 취소
+    if (this.keys.Space && this.pos.y <= eyeBase + 0.01) { this.vy = 5.4; Sfx.step(); if (this.sliding) this.endSlide(); }
+    this.vy -= (this.sliding ? 44 : 14) * dt; // 슬라이드는 몸 낮추기가 빠름
     this.pos.y += this.vy * dt;
     if (this.pos.y <= eyeBase) {
       if (this.vy < -5) { Sfx.step(); this.vmLand = 1; }
       this.pos.y = eyeBase; this.vy = 0;
     }
     this.grounded = this.pos.y <= eyeBase + 0.05;
+    // 슬라이드 종료 (C 해제 / 속도 소멸 / 시간 / 공중)
+    if (this.sliding && (!this.keys.KeyC || this.slideT <= 0 || this.slideSpeed <= 3.2 || !wasGrounded)) this.endSlide();
     this.eyeBase = eyeBase;
     this.camera.position.copy(this.pos);
     this.camera.rotation.set(0, 0, 0, 'YXZ');
@@ -1779,6 +1960,7 @@ export class FPSGame {
       this.camera.rotation.x += (Math.random() - 0.5) * this.shake * 0.05;
       this.camera.rotation.y += (Math.random() - 0.5) * this.shake * 0.05;
     }
+    if (this.sliding) this.camera.rotation.z += 0.085; // 슬라이드 기울임
     // 조준(우클릭): AWP 줌
     const w = WEAPONS[this.wi];
     if (this.aiming && w.zoom) { this.camera.fov = 18; } else if (this.aiming) { this.camera.fov = 52; } else { this.camera.fov = 70; }
@@ -2029,7 +2211,7 @@ export class FPSGame {
     } else this.defuseP = 0;
     // 네트워크 전송 20Hz
     this.netTimer += dt;
-    if (this.netTimer > 0.05) { this.netTimer = 0; this.socket.emit('player:state', { pos: { x: this.pos.x, y: this.pos.y, z: this.pos.z }, yaw: this.yaw, pitch: this.pitch, wi: this.wi, fy: this.pos.y - this.eyeBase, crouch: !!this.crouch }); }
+    if (this.netTimer > 0.05) { this.netTimer = 0; this.socket.emit('player:state', { pos: { x: this.pos.x, y: this.pos.y, z: this.pos.z }, yaw: this.yaw, pitch: this.pitch, wi: this.wi, fy: this.pos.y - this.eyeBase, crouch: !!this.crouch, sl: this.sliding, eid: this.emoteId }); }
     // 깃발 애니메이션
     const t = now / 500;
     for (const f of Object.values(this.flags || {})) f.mesh.rotation.y = Math.sin(t) * 0.3;
