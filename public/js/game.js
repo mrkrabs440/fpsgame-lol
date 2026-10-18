@@ -69,10 +69,9 @@ const Sfx = {
 };
 
 export class FPSGame {
-  constructor({ canvas, socket, room, team, nick, skin, state }) {
+  constructor({ canvas, socket, room, team, nick, state }) {
     this.canvas = canvas; this.socket = socket;
     this.room = room; this.team = team; this.nick = nick;
-    this.mySkin = skin || 'default'; // 'black' = 특별 스킨
     this.serverState = state;
     this.disposed = false;
     this.keys = {};
@@ -92,7 +91,7 @@ export class FPSGame {
     this.captureProgress = 0; this.capturing = null;
     this.chatOpen = false; this.isMoving = false;
     this.shake = 0; this.streak = 0; this.streakT = 0; this.defuseP = 0; this.stepT = 0;
-    this.reloadSeq = 0; this.recoilYaw = 0; this.deathSeq = 0;
+    this.reloadSeq = 0; this.deathSeq = 0;
     this.nades = 2; this.nadeList = []; this.vy = 0; this.firstBlood = false;
     this.rocketList = []; this.stunT = 0; this.gatSpin = 0; this.gatLast = 0;
     this.crouch = false; this.eyeBase = 1.7; this.grounded = true;
@@ -517,9 +516,8 @@ export class FPSGame {
     this.vmRig.position.copy(this.vmHipPos);
 
     // 팔 (팀 슬리브 + 피부 손): 카메라 아래쪽에서 시작해 화면 밖으로 이어지게 배치
-    const black = this.mySkin === 'black';
-    const sleeveCol = black ? 0x4a1a6a : (this.team === 'alpha' || this.team === 'CT') ? 0x2a3d55 : 0x5a3a2a;
-    const skin = new THREE.MeshLambertMaterial({ color: black ? 0x4a2c17 : 0xd9a066 });
+    const sleeveCol = (this.team === 'alpha' || this.team === 'CT') ? 0x2a3d55 : 0x5a3a2a;
+    const skin = new THREE.MeshLambertMaterial({ color: 0xd9a066 });
     const sleeve = new THREE.MeshLambertMaterial({ color: sleeveCol });
     const mkArm = (x, len, rotY) => {
       const g = new THREE.Group();
@@ -543,7 +541,7 @@ export class FPSGame {
     this.flash = new THREE.PointLight(0xffcc33, 0, 9);
     this.camera.add(this.flash);
     // 뷰모델 애니 상태
-    this.vmBob = 0; this.vmRecoil = 0; this.vmFlashT = 0;
+    this.vmBob = 0; this.vmFlashT = 0;
     this.vmAdsK = 0; this.vmReloadStart = -1; this.vmReloadDur = 1500;
     this.vmSwitchT = 0; this.lastShootEmit = 0;
     this.updateVmFlashPos();
@@ -725,7 +723,7 @@ export class FPSGame {
     this.reloading = false; this.reloadSeq++; // 대기 중 장전 타이머 무효화
     this.gatSpin = 0; this.gatLast = 0;
     this.aiming = false; this.firing = false; this.vmAdsK = 0;
-    this.stunT = 0; this.shake = 0; this.vmRecoil = 0;
+    this.stunT = 0; this.shake = 0;
     this.spawnPlayer();
     document.getElementById('respawn-overlay').classList.add('hidden');
     this.updateHUD();
@@ -798,7 +796,7 @@ export class FPSGame {
     }, this.vmReloadDur);
   }
 
-  // 1인칭 뷰모델 애니: 걷기흔들림+반동+장전+교체+조준
+  // 1인칭 뷰모델 애니: 걷기흔들림+장전+교체+조준 (반동 없음)
   updateViewmodel(dt, now) {
     if (!this.vmRig) return;
     const moving = this.isMoving && this.alive && document.pointerLockElement === this.canvas;
@@ -810,8 +808,6 @@ export class FPSGame {
     const k = this.vmAdsK;
     const bobA = 0.014 * (1 - k * 0.8);
     const bx = Math.sin(this.vmBob) * bobA, by = Math.abs(Math.cos(this.vmBob)) * bobA * 1.2;
-    // 반동 감쇠
-    this.vmRecoil = Math.max(0, this.vmRecoil - dt * 6);
     // 장전 진행도
     let relDip = 0, relTilt = 0;
     if (this.reloading && this.vmReloadStart > 0) {
@@ -831,11 +827,10 @@ export class FPSGame {
     // 전력질주 시 총 내리기
     const sprinting = moving && (this.keys.ShiftLeft || this.keys.ShiftRight) && !this.aiming;
     this.vmSprintK += ((sprinting ? 1 : 0) - this.vmSprintK) * Math.min(1, dt * 8);
-    // 위치: 힙↔조준 보간 + 밥 + 반동 + 딥
+    // 위치: 힙↔조준 보간 + 밥 + 딥
     this.vmRig.position.lerpVectors(this.vmHipPos, this.vmAdsPos, k);
     this.vmRig.position.x += bx; this.vmRig.position.y += by - relDip - swDip - landDip - throwDip - this.vmSprintK * 0.05;
-    this.vmRig.position.z += this.vmRecoil * 0.09;
-    this.vmRig.rotation.x = this.vmRecoil * 0.14 - relTilt - (this.vmSwitchT > 0 ? 0.35 * Math.sin((this.vmSwitchT / 0.28) * Math.PI) : 0) - this.vmSprintK * 0.25;
+    this.vmRig.rotation.x = -relTilt - (this.vmSwitchT > 0 ? 0.35 * Math.sin((this.vmSwitchT / 0.28) * Math.PI) : 0) - this.vmSprintK * 0.25;
     this.vmRig.rotation.y = swipeK * 0.6;
     this.vmRig.rotation.z = Math.sin(this.vmBob * 0.5) * 0.008;
     // 섬광 감쇠 + 랜덤 회전 + 게틀링 총열 회전
@@ -1132,16 +1127,15 @@ export class FPSGame {
   // 관절형 병사 모델 (두부/몸통/팔2×2관절/다리2×2관절 + 장비)
   makeRemoteMesh(p, nickname = '?') {
     const friendly = (p.team === 'alpha' || p.team === 'CT');
-    const black = (p.skin || 'default') === 'black';
-    const uni = black ? 0x4a1a6a : friendly ? 0x2e4a68 : 0x6e3a2a;      // 전투복 (특별: 보라)
-    const vestC = black ? 0xc9a227 : friendly ? 0x1d2c40 : 0x40231a;   // 방탄복 (특별: 금)
-    const helmC = black ? 0x141414 : friendly ? 0x24344a : 0x4a2c1c;   // 헬멧 (특별: 흑)
-    const skin = new THREE.MeshLambertMaterial({ color: black ? 0x4a2c17 : 0xd9a066 });
+    const uni = friendly ? 0x2e4a68 : 0x6e3a2a;      // 전투복
+    const vestC = friendly ? 0x1d2c40 : 0x40231a;    // 방탄복
+    const helmC = friendly ? 0x24344a : 0x4a2c1c;    // 헬멧
+    const skin = new THREE.MeshLambertMaterial({ color: 0xd9a066 });
     const uniM = new THREE.MeshLambertMaterial({ color: uni });
     const vestM = new THREE.MeshLambertMaterial({ color: vestC });
     const helmM = new THREE.MeshLambertMaterial({ color: helmC });
     const darkM = new THREE.MeshLambertMaterial({ color: 0x191919 });
-    const bootM = new THREE.MeshLambertMaterial({ color: black ? 0x2a1040 : 0x2c2318 });
+    const bootM = new THREE.MeshLambertMaterial({ color: 0x2c2318 });
 
     const root = new THREE.Group();
     const B = (w, h, d, m, x, y, z) => {
