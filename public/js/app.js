@@ -165,7 +165,7 @@ socket.on('room:joined', (d) => {
     $('auth-screen').classList.add('hidden');
     $('game-screen').classList.remove('hidden');
     if (game) { try { game.dispose(); } catch (e) {} }
-    game = new FPSGame({ canvas: $('game-canvas'), socket, room: currentRoom, team: myTeam, nick: myNick, op: !!d.op, state: d.state });
+    game = new FPSGame({ canvas: $('game-canvas'), socket, room: currentRoom, team: myTeam, nick: myNick, op: !!d.op, mad: !!d.mad, state: d.state });
     game.start();
   } catch (e) {
     console.error(e);
