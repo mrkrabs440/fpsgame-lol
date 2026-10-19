@@ -921,7 +921,7 @@ export class FPSGame {
     const grid = document.getElementById('shop-grid');
     grid.innerHTML = WEAPONS.map((w, i) => {
       const locked = (w.op && !this.hasOpGun) || (w.mad && !this.hasMadGun) || (w.armor && !this.isAdmin);
-      const label = w.op ? '즉사 · 무한탄 · 관통 · 벽무시 · 🛡장착중무적'
+      const label = w.op ? '즉사 · 무한탄 · 관통 · 벽무시'
         : w.mad ? '🐴 갈색 조랑말 · 즉사 · 적팀전원처형'
         : w.armor ? '🛡 무적 · 개뇌절개 · 초딩개잼'
         : (w.melee ? `근접 ${w.dmg} · 사거리 ${w.range}m` : `대미지 ${w.dmg} · ${w.pellets ? w.pellets + '펠릿' : w.mag + '발'}`);
@@ -2208,7 +2208,7 @@ export class FPSGame {
     const fmt = (v) => isFinite(v) ? v : '∞';
     const ownTag = w.op ? ' 👑' : w.mad ? ' 🐴' : w.armor ? ' ⭐' : '';
     const priv = w.op || w.mad || w.armor;
-    document.getElementById('weapon-name').textContent = `${w.id}${ownTag}${priv ? (w.armor ? ' [관리자 · 장착중 무적]' : w.op ? ' [전용 · 장착중 무적]' : ' [전용]') : ''}${this.reloading ? ' - 장전중...' : ''}`;
+    document.getElementById('weapon-name').textContent = `${w.id}${ownTag}${priv ? (w.armor ? ' [관리자 · 장착중 무적]' : ' [전용]') : ''}${this.reloading ? ' - 장전중...' : ''}`;
     document.getElementById('ammo').textContent = priv ? '∞ / ∞' : `${fmt(a.mag)} / ${fmt(a.reserve)}`;
     const hb = document.getElementById('hotbar');
     hb.innerHTML = WEAPONS.map((ww, i) => {
