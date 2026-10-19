@@ -166,29 +166,23 @@ function checkKillStats(p, headshot) {
   if (s.kills >= 20 && s.hs / s.kills > 0.65) flagCheat(p, 'hsRatio', `헤드샷 ${Math.round(s.hs / s.kills * 100)}%`);
 }
 // OP총: 지정 닉네임만 / 미친말총: 지정 닉네임 + 가입 시 ID / 관리자 갑옷: 지정 ID
-// ---------- 전용 무기 권한 ----------
-// OP총: 지정 닉네임만 / 미친말총: 지정 닉네임+ID / 관리자갑옷: 지정 ID
-const PRIVY_NICKS = new Set(['맘마버거', '양웅빈']);
-const MAD_NICKS = new Set(['spider men']);
-const MAD_USERS = new Set(['Tlqkfsusemfdk69']);
+// ---------- 관리자 (개발자 통계 탭 · 치트 콘솔 권한) ----------
 const ADMIN_USERS = new Set(['Tlqkfsusemfdk69']);
-const OP_WEAPON_INDEX = 10;
-const MAD_WEAPON_INDEX = 11;
-const ARMOR_WEAPON_INDEX = 12;
-function isPrivy(nickname) { return PRIVY_NICKS.has(String(nickname || '').trim()); }
 function isAdmin(username) { return ADMIN_USERS.has(String(username || '').trim()); }
-// 무적 갑옷 장착 인덱스 (관리자 갑옷만) — 장착 중 외부 피해 무효
-function isInvincibleWi(wi) { return wi === ARMOR_WEAPON_INDEX; }
-function isMad(nickname, username) {
-  return MAD_NICKS.has(String(nickname || '').trim().toLowerCase()) || MAD_USERS.has(String(username || '').trim());
+// 라운드 로드아웃 검증: 원거리 1개 + 근접 1개만 사용 가능
+const RANGED_IDX = [0, 1, 2, 3, 4, 5, 6, 7, 8];   // 총기류 (M4~게틀링)
+const MELEE_IDX = [9, 10, 11, 12, 13, 14];        // 근접류 (나이프~부채)
+const DEFAULT_LO = [0, 9];
+function clampLoadout(lo) {
+  const arr = Array.isArray(lo) ? lo : [];
+  const r = arr.find(i => RANGED_IDX.includes(i));
+  const m = arr.find(i => MELEE_IDX.includes(i));
+  return [r === undefined ? DEFAULT_LO[0] : r, m === undefined ? DEFAULT_LO[1] : m];
 }
-// 무기 슬롯 권한 클램프 (권한 없는 전용 무기 요청은 직전 일반 무기로 대체)
 function clampWi(wi, p) {
-  let w = Math.max(0, Math.min(ARMOR_WEAPON_INDEX, parseInt(wi, 10) || 0));
-  if (w === ARMOR_WEAPON_INDEX && !p.admin) w = MAD_WEAPON_INDEX;
-  if (w === MAD_WEAPON_INDEX && !p.mad) w = OP_WEAPON_INDEX;
-  if (w === OP_WEAPON_INDEX && !p.op) w = OP_WEAPON_INDEX - 1;
-  return w;
+  const w = Math.max(0, Math.min(14, parseInt(wi, 10) || 0));
+  const lo = p.loadout || DEFAULT_LO;
+  return lo.includes(w) ? w : lo[0];
 }
 
 function getTier(rating) {
@@ -323,9 +317,6 @@ app.patch('/api/nickname', authMiddleware, (req, res) => {
   const me = users.find(u => u.id === req.user.id);
   if (!me) return res.status(401).json({ error: '세션 만료' });
   if (users.find(u => u.nickname === nn && u.id !== me.id)) return res.status(409).json({ error: '이미 사용 중인 닉네임입니다.' });
-  // 전용 닉네임은 등록된 본인만 보유 가능 (타인이 탈취 불가)
-  if (isPrivy(nn) && !isPrivy(me.nickname)) return res.status(403).json({ error: '전용 닉네임은 사용할 수 없습니다.' });
-  if (MAD_NICKS.has(nn.toLowerCase()) && !isMad(me.nickname, me.username)) return res.status(403).json({ error: '전용 닉네임은 사용할 수 없습니다.' });
   if (me.nickname === nn) return res.json({ ok: true, nickname: nn, message: '같은 닉네임입니다.' });
   const old = me.nickname;
   me.nickname = nn;
@@ -337,10 +328,8 @@ app.patch('/api/nickname', authMiddleware, (req, res) => {
   for (const pl of players.values()) {
     if (pl.userId !== me.id) continue;
     pl.nickname = nn;
-    pl.op = isPrivy(nn); // 닉네임 변경 시 전용 무기 권한 즉시 갱신
-    pl.mad = isMad(nn, me.username);
     pl.admin = isAdmin(me.username);
-    pl.wi = clampWi(pl.wi, pl); // 권한 박탈 시 총 회수
+    pl.wi = clampWi(pl.wi, pl);
     if (pl.roomId && rooms.get(pl.roomId)) touched.add(pl.roomId);
   }
   for (const rid of touched) {
@@ -366,6 +355,26 @@ function publicRoom(r) {
 }
 
 app.get('/api/modes', (req, res) => res.json({ ok: true, modes: MODES }));
+// 개발자 통계 탭용 서버 통계
+app.get('/api/stats', (req, res) => {
+  const users = loadUsers();
+  const live = [...players.values()];
+  const modeCount = {};
+  for (const r of rooms.values()) modeCount[r.mode] = (modeCount[r.mode] || 0) + 1;
+  let kills = 0, deaths = 0, matches = 0;
+  for (const u of users) { kills += u.kills || 0; deaths += u.deaths || 0; matches += (u.wins || 0) + (u.losses || 0); }
+  res.json({
+    ok: true,
+    server: {
+      users: users.length, online: live.length, rooms: rooms.size,
+      roomsByMode: modeCount, kills, deaths, matches,
+      uptime: Math.round(process.uptime()), node: process.version,
+      memMB: Math.round(process.memoryUsage().heapUsed / 1048576),
+    },
+    live: live.map(p => ({ nickname: p.nickname, team: p.team, hp: p.hp, alive: p.alive, kills: p.kills, deaths: p.deaths, wi: p.wi, loadout: p.loadout })),
+    cheatTotal: [...cheatStats.values()].reduce((a, b) => a + b.total, 0),
+  });
+});
 app.get('/api/admin/cheats', authMiddleware, (req, res) => {
   if (!isAdmin(req.user.username)) return res.status(403).json({ error: '관리자 전용' });
   const stats = [...cheatStats.values()]
@@ -658,8 +667,8 @@ io.on('connection', (socket) => {
     const user = users.find(u => u.id === uid);
     if (!user) return socket.emit('auth:fail');
     if (checkSeasonRollover(user)) saveUsers(users);
-    players.set(socket.id, { socketId: socket.id, userId: user.id, nickname: user.nickname, op: isPrivy(user.nickname), mad: isMad(user.nickname, user.username), admin: isAdmin(user.username), roomId: null, team: null, hp: 100, alive: true, kills: 0, deaths: 0, money: 800, pos: { x: 0, y: 1.7, z: 0 }, yaw: 0 });
-    socket.emit('auth:ok', { nickname: user.nickname, op: isPrivy(user.nickname), mad: isMad(user.nickname, user.username), admin: isAdmin(user.username) });
+    players.set(socket.id, { socketId: socket.id, userId: user.id, nickname: user.nickname, admin: isAdmin(user.username), loadout: [...DEFAULT_LO], roomId: null, team: null, hp: 100, alive: true, kills: 0, deaths: 0, money: 800, pos: { x: 0, y: 1.7, z: 0 }, yaw: 0 });
+    socket.emit('auth:ok', { nickname: user.nickname, admin: isAdmin(user.username) });
     socket.emit('lobby:update', { rooms: [...rooms.values()].map(publicRoom) });
   });
 
@@ -672,7 +681,7 @@ io.on('connection', (socket) => {
     if (room.order.includes(socket.id)) {
       // 이미 입장 상태면 상태만 재전송 (중복입장 방지)
       socket.join('room_' + roomId);
-      return socket.emit('room:joined', { room: publicRoom(room), team: p.team, state: room.state, you: p.nickname, op: !!p.op, mad: !!p.mad, admin: !!p.admin });
+      return socket.emit('room:joined', { room: publicRoom(room), team: p.team, state: room.state, you: p.nickname, admin: !!p.admin, loadout: p.loadout });
     }
     if (room.order.length >= room.maxPlayers) return socket.emit('error:msg', '방이 가득 찼습니다.');
     // 기존 방 떠나기
@@ -682,7 +691,7 @@ io.on('connection', (socket) => {
     p.hp = 100; p.alive = true;
     room.order.push(socket.id);
     socket.join('room_' + roomId);
-    socket.emit('room:joined', { room: publicRoom(room), team: p.team, state: room.state, you: p.nickname, op: !!p.op, mad: !!p.mad, admin: !!p.admin });
+    socket.emit('room:joined', { room: publicRoom(room), team: p.team, state: room.state, you: p.nickname, admin: !!p.admin, loadout: p.loadout });
     io.to('room_' + roomId).emit('room:players', roomPlayers(roomId));
     io.to('room_' + roomId).emit('chat:msg', { sys: true, text: `▶ ${p.nickname} (${p.team}) 입장` });
     broadcastLobby();
@@ -740,7 +749,8 @@ io.on('connection', (socket) => {
     p._st = { t: now, pos: { x: d.pos.x, z: d.pos.z } };
     p.pos = { x: cx(d.pos.x), y: cx(d.pos.y), z: cx(d.pos.z) };
     p.yaw = d.yaw; p.pitch = d.pitch || 0;
-    // 무기 인덱스 클램프: 전용 무기(OP총/미친말총)는 권한자만 보유 가능
+    // 무기 인덱스 클램프: 라운드 로드아웃(원거리1+근접1) 안에서만 허용
+    p.loadout = clampLoadout(d.lo || p.loadout);
     p.wi = clampWi(d.wi, p);
     p.fy = d.fy || 0; p.crouch = !!d.crouch;
     p.sliding = !!d.sl; p.eid = Math.max(0, Math.min(999999, parseInt(d.eid, 10) || 0)); // 슬라이드/이모트(신호 순번)
@@ -749,26 +759,18 @@ io.on('connection', (socket) => {
   });
 
   // 피해 적용 공용 (총탄·수류탄): HP 차감→사망/데미지 브로드캐스트→리스폰
-  // ignoreCap=true 는 서버 권한 전용 무기(OP총) 처형에만 사용
-  function strike(room, shooter, targetEntry, damage, weapon, stun = false, ignoreCap = false) {
+  function strike(room, shooter, targetEntry, damage, weapon, stun = false) {
     if (!room || !rooms.get(room.id)) return;
     if (!shooter || !shooter.alive) return;
     if (!targetEntry || !targetEntry.alive) return;
     damage = Number(damage);
     if (!isFinite(damage) || damage < 1) { flagCheat(shooter, 'forgedDmg', String(damage).slice(0, 20)); return; } // 음수/NaN 데미지 거부
-    damage = Math.min(ignoreCap ? 100000 : 160, Math.round(damage));
+    damage = Math.min(160, Math.round(damage));
     const suicide = shooter === targetEntry;
     // 킬/피해 통계 + 이상 징후 탐지 (경고만)
     if (!suicide) {
       const cs = cheatOf(shooter); cs.dmg += damage;
       if (damage >= 900) flagCheat(shooter, 'dmgSpike', `단일 피해 ${damage}`);
-    }
-    // 무적갑옷(관리자 갑옷) 장착 중에는 외부 피해 전부 무효 (자폭·자해는 유효)
-    if (!suicide && targetEntry.admin && isInvincibleWi(targetEntry.wi)) {
-      targetEntry.hp = Math.max(targetEntry.hp, 1);
-      io.to('room_' + room.id).emit('player:blocked', { target: targetEntry.nickname, attacker: shooter.nickname });
-      io.to('room_' + room.id).emit('player:damaged', { target: targetEntry.nickname, hp: targetEntry.hp, attacker: shooter.nickname, stun: false, blocked: true });
-      return;
     }
     targetEntry.hp -= damage;
     if (targetEntry.hp <= 0) {
@@ -839,43 +841,7 @@ io.on('connection', (socket) => {
       return;
     }
     if (targetEntry.team === shooter.team) { flagCheat(shooter, 'teamKill', String(target).slice(0, 16)); return; } // 아군 오사 방지
-    // OP총: 전용 유저만 사용 가능 + 데미지는 서버가 강제 (클라 조작 무효)
-    const wName = String(weapon || '');
-    if (d.op === true || wName.startsWith('OP총')) {
-      if (!shooter.op || !isPrivy(shooter.nickname)) return;
-      strike(room, shooter, targetEntry, 999, 'OP총', false, true);
-      return;
-    }
-    // 미친말총: 전용 유저만 + 데미지 서버 강제
-    if (d.mad === true || wName.startsWith('미친말총')) {
-      if (!shooter.mad) return;
-      strike(room, shooter, targetEntry, 999, '미친말총🐴', false, true);
-      return;
-    }
-    // 관리자 갑옷: 전용 유저만 + 데미지 서버 강제
-    if (d.armor === true || wName.startsWith('무적개뇌')) {
-      if (!shooter.admin) return;
-      strike(room, shooter, targetEntry, 999, '무적개뇌절개초딩개잼민이갑옷', false, true);
-      return;
-    }
     strike(room, shooter, targetEntry, damage, weapon, !!stun);
-  });
-
-  // 미친말총 일괄 저격 (적 팀 전원 즉사 — 전용 유저 전용, 스로틀 400ms)
-  const madBlastAt = new Map();
-  socket.on('mad:blast', () => {
-    const shooter = players.get(socket.id);
-    if (!shooter || !shooter.roomId || !shooter.alive || !shooter.mad) return;
-    const now = Date.now();
-    if (madBlastAt.get(socket.id) && now - madBlastAt.get(socket.id) < 400) return;
-    madBlastAt.set(socket.id, now);
-    const room = rooms.get(shooter.roomId);
-    if (!room) return;
-    for (const pl of players.values()) {
-      if (pl.roomId !== shooter.roomId || !pl.alive) continue;
-      if (pl.nickname === shooter.nickname || pl.team === shooter.team) continue;
-      strike(room, shooter, pl, 999, '미친말총🐴', false, true);
-    }
   });
 
   // 봇 공격 판정 (클라 봇이 원격 플레이어를 맞췄을 때, 킬러=BOT 이름)

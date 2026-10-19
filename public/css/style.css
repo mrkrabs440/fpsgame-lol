@@ -116,3 +116,32 @@ header{display:flex;justify-content:space-between;align-items:center}
 #click-to-play{position:absolute;inset:0;background:rgba(0,0,0,.75);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer}
 #click-to-play button{pointer-events:auto;padding:10px 20px;border-radius:8px;border:none;background:#c0392b;color:#fff;cursor:pointer}
 @media(max-width:800px){.mode-cards,.lobby-main{grid-template-columns:1fr}}
+
+
+/* ================= 무기 선택 (로드아웃) ================= */
+.loadout-grid { display: flex; gap: 14px; }
+.loadout-col { flex: 1; min-width: 0; }
+.loadout-col h3 { margin: 0 0 8px; font-size: 14px; color: #ffd93d; display: flex; align-items: center; gap: 8px; }
+.loadout-col h3 em { font-style: normal; font-size: 11px; color: #7d8ea0; background: #1c2530; padding: 2px 8px; border-radius: 10px; }
+.loadout-list { display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow-y: auto; padding-right: 4px; }
+.loadout-list .shop-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; background: #131b24; border: 1px solid #22303d; cursor: pointer; transition: .12s; }
+.loadout-list .shop-item:hover { border-color: #4a90d9; background: #17222e; }
+.loadout-list .shop-item.active { border-color: #ffd93d; background: #232a17; box-shadow: 0 0 0 1px #ffd93d inset; }
+.loadout-list .shop-item b { flex: 0 0 82px; color: #e8f0f7; font-size: 13px; }
+.loadout-list .shop-item span { flex: 1; color: #7d8ea0; font-size: 11px; }
+.loadout-list .shop-item em { font-style: normal; font-size: 10px; color: #ffd93d; }
+.shop-actions { display: flex; gap: 8px; margin-top: 12px; }
+.shop-actions button { flex: 1; }
+
+/* ================= 개발자 통계 탭 ================= */
+#devstats-panel { margin: 10px 0; padding: 14px; background: #0e151d; border: 1px solid #22303d; border-radius: 10px; }
+#devstats-panel h4 { margin: 12px 0 6px; font-size: 12px; color: #7d8ea0; text-transform: uppercase; letter-spacing: .5px; }
+.ds-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.ds-card { background: #131b24; border: 1px solid #22303d; border-radius: 8px; padding: 10px 12px; }
+.ds-card h4 { margin: 0 0 4px; font-size: 11px; color: #7d8ea0; text-transform: none; }
+.ds-card b { display: block; font-size: 20px; color: #7fd4ff; line-height: 1.1; }
+.ds-card span { font-size: 10px; color: #5d6b7a; }
+.ds-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ds-table th, .ds-table td { padding: 5px 8px; text-align: left; border-bottom: 1px solid #1c2733; }
+.ds-table th { color: #7d8ea0; font-size: 11px; font-weight: 600; }
+.ds-table td.num { text-align: right; font-variant-numeric: tabular-nums; }

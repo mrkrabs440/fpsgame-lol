@@ -56,8 +56,10 @@
       <div class="panel-head">
         <h3>방 목록</h3>
         <button id="btn-refresh">새로고침</button>
+        <button id="btn-devstats">📊 개발자 통계</button>
         <button id="btn-create" class="primary">+ 방 만들기</button>
       </div>
+      <div id="devstats-panel" class="hidden"></div>
       <div id="room-list"></div>
     </div>
     <div class="side-col">
@@ -86,7 +88,7 @@
     </div>
     </div>
   </div>
-  <div class="help">WASD 이동 · Space 점프 · C 앉기(집탄↑) · Shift 달리기 → 달리기 중 C 슬라이드 · 마우스 조준 · 클릭 사격(슬라이드 중에도 가능) · G 수류탄 · F 무기검사 · L 엘을 가져가 이모트 · O 전용 OP총 · H 전용 미친말총(🐴) · U 관리자 무적갑옷(🛡) · B 무료상점 · R 재장전 · 1~9·0 무기교체 · E 상호작용 · 헤드샷 2배 · Tab 스코어보드 · Enter 채팅 · 사망 시 Q 아군관전</div>
+  <div class="help">WASD 이동 · Space 점프 · C 앉기(집탄↑) · Shift 달리기 → 달리기 중 C 슬라이드 · 마우스 조준 · 클릭 사격(슬라이드 중에도 가능) · G 수류탄 · F 무기검사 · L 엘을 가져가 이모트 · B 무기선택(원거리1+근접1) · R 재장전 · 1 원거리 · 2 근접 · E 상호작용 · 헤드샷 2배 · Tab 스코어보드 · Enter 채팅 · 사망 시 Q 아군관전</div>
 </div>
 
 <!-- 게임 화면 -->
@@ -126,7 +128,7 @@
     <div id="round-overlay" class="hidden"></div>
   </div>
   <div id="click-to-play"><h2>클릭하여 참전</h2><p>WASD + 마우스 · ESC 메뉴</p><button id="btn-leave">로비로 탈출</button></div>
-  <div id="shop" class="hidden"><div class="shop-box"><h2>🔫 무기 상점 <span>(전부 무료)</span></h2><div id="shop-grid"></div><button id="btn-shop-close" class="primary">닫기 (B)</button></div></div>
+  <div id="shop" class="hidden"><div class="shop-box"><h2>🎯 라운드 무기 선택 <span>(원거리 1개 + 근접 1개)</span></h2><div id="shop-grid"></div><div class="shop-actions"><button id="btn-shop-ok" class="primary">확정하고 시작 (B)</button><button id="btn-shop-close">닫기</button></div></div></div>
   <div id="match-end" class="hidden"><div class="me-box"><h1 id="me-title">🏆 승리</h1><div id="me-sub"></div><div id="me-stats"></div><button id="btn-continue" class="primary">계속 플레이</button><button id="btn-tolobby">로비로</button></div></div>
 </div>
 

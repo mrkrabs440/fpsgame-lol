@@ -74,6 +74,49 @@ async function enterLobby() {
   if (socket.connected) socket.emit('auth', { token });
   else socket.once('connect', () => socket.emit('auth', { token }));
   loadModes(); loadRooms(); loadMe(); loadRankings();
+  initDevStats();
+}
+
+// ---------- 개발자 통계 탭 ----------
+let devStatsTimer = null;
+function initDevStats() {
+  const btn = document.getElementById('btn-devstats');
+  const panel = document.getElementById('devstats-panel');
+  if (!btn || !panel) return;
+  btn.onclick = () => {
+    const open = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden', !open);
+    btn.textContent = open ? '📊 통계 닫기' : '📊 개발자 통계';
+    if (open) { refreshDevStats(); devStatsTimer = setInterval(refreshDevStats, 2000); }
+    else if (devStatsTimer) { clearInterval(devStatsTimer); devStatsTimer = null; }
+  };
+}
+async function refreshDevStats() {
+  const panel = document.getElementById('devstats-panel');
+  if (!panel || panel.classList.contains('hidden')) return;
+  try {
+    const r = await fetch('/api/stats');
+    const j = await r.json();
+    if (!j.ok) return;
+    const s = j.server;
+    const modeNames = { conquest: '정복전', operation: '블랙호크', defuse: '폭탄해체', tdm: '팀DM', ffa: '개인전', gungame: '건게임' };
+    const modes = Object.entries(s.roomsByMode || {}).map(([k, v]) => `${modeNames[k] || k} ${v}`).join(' · ') || '없음';
+    const live = (j.live || []).map(p => `<tr><td>${escapeHtml(p.nickname)}</td><td>${p.team || '-'}</td><td class="num">${p.kills}</td><td class="num">${p.deaths}</td><td>${p.alive ? '생존' : '사망'}</td></tr>`).join('');
+    panel.innerHTML = `
+      <div class="ds-grid">
+        <div class="ds-card"><h4>👥 사용자</h4><b>${s.users}</b><span>명 가입</span></div>
+        <div class="ds-card"><h4>🟢 접속 중</h4><b>${s.online}</b><span>명</span></div>
+        <div class="ds-card"><h4>🏠 방</h4><b>${s.rooms}</b><span>${modes}</span></div>
+        <div class="ds-card"><h4>💀 누적 킬</h4><b>${s.kills}</b><span>데스 ${s.deaths}</span></div>
+        <div class="ds-card"><h4>🎯 매치</h4><b>${s.matches}</b><span>경기</span></div>
+        <div class="ds-card"><h4>⚠ 치트 감지</h4><b>${j.cheatTotal}</b><span>건 (경고만)</span></div>
+        <div class="ds-card"><h4>⏱ 가동</h4><b>${Math.floor(s.uptime / 60)}분</b><span>Node ${s.node}</span></div>
+        <div class="ds-card"><h4>💾 메모리</h4><b>${s.memMB}MB</b><span>HEAP</span></div>
+      </div>
+      <h4>👥 접속 중인 플레이어</h4>
+      <table class="ds-table"><thead><tr><th>닉네임</th><th>팀</th><th class="num">K</th><th class="num">D</th><th>상태</th></tr></thead>
+      <tbody>${live || '<tr><td colspan=5 style="color:#7d8ea0;text-align:center">접속자 없음</td></tr>'}</tbody></table>`;
+  } catch (e) {}
 }
 
 async function loadMe() {
@@ -165,8 +208,10 @@ socket.on('room:joined', (d) => {
     $('auth-screen').classList.add('hidden');
     $('game-screen').classList.remove('hidden');
     if (game) { try { game.dispose(); } catch (e) {} }
-    game = new FPSGame({ canvas: $('game-canvas'), socket, room: currentRoom, team: myTeam, nick: myNick, op: !!d.op, mad: !!d.mad, admin: !!d.admin, state: d.state });
+    game = new FPSGame({ canvas: $('game-canvas'), socket, room: currentRoom, team: myTeam, nick: myNick, state: d.state });
+    if (d.loadout) game.setLoadout(d.loadout);
     game.start();
+    setTimeout(() => { if (game && !game.disposed) game.openLoadout(true); }, 700); // 첫 라운드 무기 선택
   } catch (e) {
     console.error(e);
     alert('게임 시작 오류: ' + e.message + '\n(인터넷 연결 필요: Three.js CDN)');
