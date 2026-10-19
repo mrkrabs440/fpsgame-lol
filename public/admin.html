@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>🛡 관리자 콘솔 — 치트 탐지 통계</title>
+<style>
+  :root { --bg:#0d1117; --card:#161b22; --line:#30363d; --txt:#e6edf3; --dim:#8b949e; --red:#ff6b6b; --yel:#ffd93d; --grn:#4ade80; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px; background:var(--bg); color:var(--txt); font-family:-apple-system,'Malgun Gothic','맑은 고딕',sans-serif; }
+  h1 { margin:0 0 4px; font-size:22px; }
+  .sub { color:var(--dim); font-size:13px; margin-bottom:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .card h2 { margin:0 0 12px; font-size:15px; color:var(--yel); }
+  input { width:100%; padding:10px 12px; background:#0d1117; border:1px solid var(--line); border-radius:8px; color:var(--txt); font-size:14px; }
+  button { padding:10px 18px; margin-top:10px; background:#238636; border:none; border-radius:8px; color:#fff; font-weight:600; cursor:pointer; }
+  button:hover { background:#2ea043; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { padding:8px 10px; text-align:left; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-weight:600; font-size:12px; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:600; }
+  .b-red { background:#4a1a1a; color:var(--red); } .b-yel { background:#4a421a; color:var(--yel); } .b-grn { background:#1a4a2a; color:var(--grn); }
+  .empty { color:var(--dim); text-align:center; padding:24px; font-size:13px; }
+  .hide { display:none; }
+  code { background:#0d1117; padding:2px 6px; border-radius:4px; font-size:12px; }
+</style>
+</head>
+<body>
+<h1>🛡 관리자 콘솔</h1>
+<div class="sub">치트 탐지 로그 &amp; 통계 — 자동 킥/밴드 없음, 경고만 전송</div>
+
+<div class="card" id="loginBox">
+  <h2>관리자 인증</h2>
+  <input id="token" type="password" placeholder="로그인 토큰 입력 (게임 로그인 후 로컬스토클에 있음)">
+  <button onclick="load()">조회</button>
+  <p style="color:var(--dim);font-size:12px;margin-bottom:0">
+    게임에 <code>Tlqkfsusemfdk69</code> 계정으로 로그인한 뒤, 브라우저 콘솔에서
+    <code>localStorage.getItem('fps_token')</code> 값을 복사해 붙여넣으세요.
+  </p>
+</div>
+
+<div id="data" class="hide">
+  <div class="card">
+    <h2>📊 요약</h2>
+    <div id="summary" style="font-size:14px"></div>
+  </div>
+  <div class="card">
+    <h2>🎯 유저별 통계</h2>
+    <table><thead><tr><th>닉네임</th><th class="num">킬</th><th class="num">헤드샷</th><th class="num">HS율</th><th class="num">위반</th><th>위반 유형</th></tr></thead>
+    <tbody id="statBody"></tbody></table>
+  </div>
+  <div class="card">
+    <h2>📝 최근 로그 (최대 60건)</h2>
+    <table><thead><tr><th>시각</th><th>닉네임</th><th>유형</th><th>상세</th><th class="num">누적</th></tr></thead>
+    <tbody id="logBody"></tbody></table>
+  </div>
+</div>
+
+<script>
+let TOK = '';
+async function load() {
+  TOK = document.getElementById('token').value.trim();
+  const r = await fetch('/api/admin/cheats', { headers: { Authorization: 'Bearer ' + TOK } });
+  const j = await r.json();
+  if (!j.ok) { alert(j.error || '조회 실패'); return; }
+  document.getElementById('loginBox').classList.add('hide');
+  document.getElementById('data').classList.remove('hide');
+  document.getElementById('summary').innerHTML =
+    `총 위반 기록 <b style="color:var(--red)">${j.total}</b>건 · 감지된 유저 <b>${j.stats.length}</b>명`;
+  const sb = document.getElementById('statBody');
+  sb.innerHTML = j.stats.length ? j.stats.map((s) => {
+    const cls = s.total >= 5 ? 'b-red' : s.total >= 2 ? 'b-yel' : 'b-grn';
+    const types = Object.entries(s.flags).map(([k, v]) => `${(j.labels[k] || k)} ×${v}`).join(', ');
+    return `<tr><td><b>${esc(s.nickname)}</b></td><td class="num">${s.kills}</td><td class="num">${s.hs}</td>
+      <td class="num">${s.hsRate}%</td><td class="num"><span class="badge ${cls}">${s.total}</span></td>
+      <td style="font-size:12px;color:var(--dim)">${esc(types)}</td></tr>`;
+  }).join('') : '<tr><td colspan="6" class="empty">✅ 감지된 위반 없음</td></tr>';
+  const lb = document.getElementById('logBody');
+  lb.innerHTML = j.logs.length ? j.logs.map((l) => {
+    const d = new Date(l.t);
+    const hh = String(d.getHours()).padStart(2, '0'), mm = String(d.getMinutes()).padStart(2, '0'), ss = String(d.getSeconds()).padStart(2, '0');
+    return `<tr><td style="color:var(--dim)">${hh}:${mm}:${ss}</td><td>${esc(l.nickname)}</td>
+      <td><span class="badge ${l.count >= 3 ? 'b-red' : 'b-yel'}">${esc(l.label)}</span></td>
+      <td style="color:var(--dim);font-size:12px">${esc(l.detail)}</td><td class="num">${l.count}</td></tr>`;
+  }).join('') : '<tr><td colspan="5" class="empty">✅ 로그 없음</td></tr>';
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+</script>
+</body>
+</html>

@@ -16,9 +16,12 @@ const WEAPONS = [
   { id: 'OP총', dmg: 999, rpm: 900, mag: Infinity, reserve: Infinity, auto: true, spread: 0.001, zoom: true, op: true, pierce: true, range: 200 },
   // 전용 미친말총 (갈색 조랑말 탑승 — 즉사·무한탄·관통·적팀전원처형)
   { id: '미친말총', dmg: 999, rpm: 700, mag: Infinity, reserve: Infinity, auto: true, spread: 0.002, zoom: true, mad: true, pierce: true, horse: true, range: 200 },
+  // 관리자 전용 무적개뇌절개초딩개잼민이갑옷 (장착 시 무적 + 개뇌절개)
+  { id: '무적개뇌절개초딩개잼민이갑옷', dmg: 999, rpm: 400, mag: Infinity, reserve: Infinity, auto: true, spread: 0.01, armor: true, pierce: true, range: 200 },
 ];
-const OP_INDEX = 10;   // 전용 OP총 인덱스 (서버와 동일)
-const MAD_INDEX = 11;  // 전용 미친말총 인덱스 (서버와 동일)
+const OP_INDEX = 10;    // 전용 OP총 인덱스 (서버와 동일)
+const MAD_INDEX = 11;   // 전용 미친말총 인덱스 (서버와 동일)
+const ARMOR_INDEX = 12; // 관리자 갑옷 인덱스 (서버와 동일)
 
 // 건게임 무기 순서 (마지막 나이프킬이 우승)
 const GUNGAME_ORDER = [0, 2, 1, 3, 5, 4, 8, 7, 6];
@@ -75,11 +78,12 @@ const Sfx = {
 };
 
 export class FPSGame {
-  constructor({ canvas, socket, room, team, nick, op, mad, state }) {
+  constructor({ canvas, socket, room, team, nick, op, mad, admin, state }) {
     this.canvas = canvas; this.socket = socket;
     this.room = room; this.team = team; this.nick = nick;
-    this.hasOpGun = !!op;  // 전용 OP총 권한 (서버 판정)
-    this.hasMadGun = !!mad; // 전용 미친말총 권한 (서버 판정)
+    this.hasOpGun = !!op;    // 전용 OP총 권한 (서버 판정)
+    this.hasMadGun = !!mad;  // 전용 미친말총 권한 (서버 판정)
+    this.isAdmin = !!admin;  // 관리자 (무적 갑옷 권한)
     this.serverState = state;
     this.disposed = false;
     this.keys = {};
@@ -735,6 +739,35 @@ export class FPSGame {
       };
       mkLeg(-0.068, -0.15); mkLeg(0.068, -0.15); mkLeg(-0.068, 0.13); mkLeg(0.068, 0.13);
       g.userData.legs = legs; g.userData.head = head; g.userData.neck = neck; g.userData.tail = tail;
+    } else if (i === 12) { // 관리자 무적개뇌절개초딩개잼민이갑옷 (무지개 자켓 + 개뇌 장갑)
+      g.children.slice().forEach(m => g.remove(m));
+      const RAINBOW = [0xff3b3b, 0xff9f1c, 0xffd93d, 0x6bdf4a, 0x3ad1ff, 0x8b5cf6, 0xff4fd8];
+      const mats = RAINBOW.map(c => new THREE.MeshLambertMaterial({ color: c }));
+      const white = new THREE.MeshLambertMaterial({ color: 0xf4f4f4 });
+      const dark = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
+      const glow = new THREE.MeshBasicMaterial({ color: 0xfff27a });
+      // 자켓 몸통 (가로 무지개 줄무늬)
+      for (let i2 = 0; i2 < 5; i2++) add(new THREE.BoxGeometry(0.21, 0.035, 0.24), mats[i2], 0, 0.09 - i2 * 0.045, -0.03);
+      add(new THREE.BoxGeometry(0.215, 0.03, 0.25), dark, 0, -0.15, -0.03); // 하단벨트
+      // 어깨 뿍뿍이 + 소매
+      add(new THREE.BoxGeometry(0.24, 0.06, 0.2), mats[6], 0, 0.12, -0.02);
+      for (const sx of [-1, 1]) {
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.3), mats[sx > 0 ? 2 : 4]);
+        arm.position.set(0.13 * sx, -0.02, -0.1); arm.rotation.y = sx * 0.18; g.add(arm);
+        // 개뇌 장갑 (말하는 손)
+        const glove = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.075, 0.1), glow);
+        glove.position.set(0.145 * sx, -0.02, -0.28); g.add(glove);
+      }
+      // 목도리 + 리본 넥타이
+      add(new THREE.BoxGeometry(0.16, 0.05, 0.14), mats[0], 0, 0.15, -0.06);
+      add(new THREE.BoxGeometry(0.05, 0.09, 0.03), mats[2], 0, 0.1, -0.17);
+      // 개뇌 송곳니 장식 (머리 위)
+      for (let i2 = 0; i2 < 4; i2++) {
+        const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.06, 5), white);
+        tooth.position.set(-0.05 + i2 * 0.033, 0.22, -0.05); tooth.rotation.x = Math.PI;
+        g.add(tooth);
+      }
+      g.userData.armorParts = g.children.slice();
     }
     g.position.set(0.0, -0.05, -0.12);
     return g;
@@ -771,6 +804,7 @@ export class FPSGame {
       if (!e.repeat && e.code === 'KeyF') this.startInspect();
       if (!e.repeat && e.code === 'KeyO') this.switchWeapon(OP_INDEX);
       if (!e.repeat && e.code === 'KeyH') this.switchWeapon(MAD_INDEX);
+      if (!e.repeat && e.code === 'KeyU') this.switchWeapon(ARMOR_INDEX);
       if (!e.repeat && e.code === 'Digit0') this.switchWeapon(9);
       if (e.code === 'KeyE') this.interact();
     };
@@ -865,7 +899,7 @@ export class FPSGame {
   toggleShop() {
     const el = document.getElementById('shop');
     if (!el) return;
-    if (this.room.mode === 'gungame' && !this.hasOpGun && !this.hasMadGun) { this.feed('건게임에선 상점 사용 불가!'); return; }
+    if (this.room.mode === 'gungame' && !this.hasOpGun && !this.hasMadGun && !this.isAdmin) { this.feed('건게임에선 상점 사용 불가!'); return; }
     if (el.classList.contains('hidden')) {
       document.exitPointerLock(); this.buildShop(); el.classList.remove('hidden');
     } else { el.classList.add('hidden'); this.canvas.requestPointerLock(); }
@@ -873,18 +907,19 @@ export class FPSGame {
   buildShop() {
     const grid = document.getElementById('shop-grid');
     grid.innerHTML = WEAPONS.map((w, i) => {
-      const locked = (w.op && !this.hasOpGun) || (w.mad && !this.hasMadGun);
+      const locked = (w.op && !this.hasOpGun) || (w.mad && !this.hasMadGun) || (w.armor && !this.isAdmin);
       const label = w.op ? '즉사 · 무한탄 · 관통 · 벽무시'
         : w.mad ? '🐴 갈색 조랑말 · 즉사 · 적팀전원처형'
+        : w.armor ? '🛡 무적 · 개뇌절개 · 초딩개잼'
         : (w.melee ? `근접 ${w.dmg} · 사거리 ${w.range}m` : `대미지 ${w.dmg} · ${w.pellets ? w.pellets + '펠릿' : w.mag + '발'}`);
-      const tag = locked ? '🔒 전용' : (w.op ? '👑 전용' : w.mad ? '🐴 전용' : 'FREE');
-      const key = w.op ? 'O' : w.mad ? 'H' : (i === 9 ? 0 : i + 1);
+      const tag = locked ? '🔒 전용' : (w.op ? '👑 전용' : w.mad ? '🐴 전용' : w.armor ? '⭐ 관리자' : 'FREE');
+      const key = w.op ? 'O' : w.mad ? 'H' : w.armor ? 'U' : (i === 9 ? 0 : i + 1);
       return `<div class="shop-item${i === this.wi ? ' active' : ''}${locked ? ' locked' : ''}" data-s="${i}"><b>[${key}] ${w.id}</b><span>${label}</span><em>${tag}</em></div>`;
     }).join('');
     grid.querySelectorAll('.shop-item').forEach(it => it.onclick = (e) => {
       e.stopPropagation();
       const i = parseInt(it.dataset.s);
-      if ((WEAPONS[i].op && !this.hasOpGun) || (WEAPONS[i].mad && !this.hasMadGun)) { Sfx.dry(); this.feed('🔒 전용 무기입니다'); return; }
+      if ((WEAPONS[i].op && !this.hasOpGun) || (WEAPONS[i].mad && !this.hasMadGun) || (WEAPONS[i].armor && !this.isAdmin)) { Sfx.dry(); this.feed('🔒 전용 무기입니다'); return; }
       this.ammo[i] = { mag: WEAPONS[i].mag, reserve: WEAPONS[i].reserve };
       this.reloading = false;
       this.switchWeapon(i); Sfx.capture(); this.buildShop();
@@ -897,9 +932,10 @@ export class FPSGame {
   }
 
   switchWeapon(i) {
-    if (this.room.mode === 'gungame' && !this.hasOpGun && !this.hasMadGun) return; // 건게임은 킬 진도로 고정 (전용총 보유자는 예외)
+    if (this.room.mode === 'gungame' && !this.hasOpGun && !this.hasMadGun && !this.isAdmin) return; // 건게임은 킬 진도로 고정 (전용총 보유자는 예외)
     if (i === OP_INDEX && !this.hasOpGun) { Sfx.dry(); this.feed('🔒 전용 무기입니다'); return; }
     if (i === MAD_INDEX && !this.hasMadGun) { Sfx.dry(); this.feed('🔒 전용 무기입니다'); return; }
+    if (i === ARMOR_INDEX && !this.isAdmin) { Sfx.dry(); this.feed('🔒 관리자 전용입니다'); return; }
     if (this.reloading || i === this.wi || i < 0 || i >= WEAPONS.length) return;
     this.wi = i; this.vmSwitchT = 0.28; this.gatSpin = 0; this.gatLast = 0;
     this.vmGuns.forEach((g, k) => g.visible = k === i);
@@ -907,7 +943,7 @@ export class FPSGame {
   }
   reload() {
     const w = WEAPONS[this.wi], a = this.ammo[this.wi];
-    if (w.melee || w.op || w.mad) return; // 전용총은 재장전 불필요 (무한탄)
+    if (w.melee || w.op || w.mad || w.armor) return; // 전용총은 재장전 불필요 (무한탄)
     if (this.reloading || a.mag === w.mag || a.reserve <= 0) { if (a.mag === 0 && a.reserve <= 0) Sfx.dry(); return; }
     this.reloading = true;
     Sfx.reload();
@@ -1045,9 +1081,11 @@ export class FPSGame {
   setSpecialGuns(flags) {
     this.hasOpGun = !!(flags && flags.op);
     this.hasMadGun = !!(flags && flags.mad);
+    this.isAdmin = !!(flags && flags.admin);
     // 권한 없는 전용 무기 equips 차단 + 회수
     if (!this.hasOpGun && this.wi === OP_INDEX) this.wi = 0;
     if (!this.hasMadGun && this.wi === MAD_INDEX) this.wi = 0;
+    if (!this.isAdmin && this.wi === ARMOR_INDEX) this.wi = 0;
     if (this.vmGuns) {
       this.vmGuns.forEach((g, k) => { g.visible = k === this.wi; });
       this.updateVmFlashPos();
@@ -1244,6 +1282,11 @@ export class FPSGame {
     });
     s.on('player:damaged', (d) => {
       if (!d) return;
+      if (d.blocked) { // 관리자 무적갑옷 방어 성공
+        if (d.target === this.nick) this.feed('🛡 무적갑옷이 공격을 막았습니다!');
+        else if (d.attacker === this.nick) { Sfx.tone(320, 0.1, 'square', 0.2, 160); this.feed('🛡 상대가 무적이라 통통함!'); }
+        return;
+      }
       if (d.target === this.nick) {
         this.hp = d.hp; this.updateHUD(); this.flashDamage(); Sfx.hurt(); this.shake = Math.min(0.6, this.shake + 0.3);
         this.showDamageDir(d.attacker);
@@ -1571,9 +1614,15 @@ export class FPSGame {
       r.muzzle.scale.setScalar(0.8 + Math.random() * 0.7);
       r.gunG.position.z = -0.4 + 0.05;
     } else { r.muzzle.visible = false; r.gunG.position.z += (-0.4 - r.gunG.position.z) * Math.min(1, dt * 12); }
+    // 관리자 갑옷 장착 시 무지개 광택 (상대에게 개드렛되는 병맛 연출)
+    if (r.wi === ARMOR_INDEX && r.hitT <= 0) {
+      const hue = (time * 0.6) % 1;
+      const pal = [0xff3060, 0xffc830, 0x40ff60, 0x40c8ff, 0xa040ff];
+      r.mats.forEach((mm, mi) => { mm.emissive.setHex(pal[(Math.floor(hue * 5) + mi) % 5]).multiplyScalar(0.3); });
+    }
     // 피탄 적색 점멸
     if (r.hitT > 0) { r.hitT -= dt; r.mats.forEach(m => m.emissive.setHex(0x771111)); }
-    else r.mats.forEach(m => m.emissive.setHex(0x000000));
+    else if (r.wi !== ARMOR_INDEX) r.mats.forEach(m => m.emissive.setHex(0x000000));
     m.rotation.y = r.yaw || 0;
   }
 
@@ -1695,11 +1744,12 @@ export class FPSGame {
     }
     if (w.melee) { this.lastShot = now; this.meleeAttack(w); return; }
     if (a.mag <= 0) { this.reload(); return; }
-    this.lastShot = now; if (!w.op && !w.mad) a.mag--; // 사격해도 슬라이드는 유지 / 전용총은 무한탄
+    this.lastShot = now; if (!w.op && !w.mad && !w.armor) a.mag--; // 사격해도 슬라이드는 유지 / 전용총은 무한탄
     if (w.rocket) { this.fireRocket(w); return; }
     // 발사 이펙트 (반동 없음: 에임 고정)
-    this.vmFlashT = w.op ? 0.08 : 0.05;
+    this.vmFlashT = (w.op || w.armor) ? 0.08 : 0.05;
     if (w.mad) { this.vmPonyKick = 1; Sfx.boom(); Sfx.tone(180, 0.14, 'sawtooth', 0.3, 60); Sfx.tone(1600, 0.06, 'square', 0.16, 300); }
+    else if (w.armor) { Sfx.tone(320, 0.12, 'square', 0.25, 900); Sfx.noise(0.12, 0.2, 1800); this.feed('🧠 개뇌절개!!'); }
     else if (w.op) { Sfx.boom(); Sfx.tone(1400, 0.09, 'sawtooth', 0.22, 180); }
     else Sfx.shoot(w.id);
     // 미친말총: 적 팀 전원 저격 (서버 권한 검증 + 스로틀)
@@ -2143,16 +2193,17 @@ export class FPSGame {
     }
     const w = WEAPONS[this.wi], a = this.ammo[this.wi];
     const fmt = (v) => isFinite(v) ? v : '∞';
-    const ownTag = w.op ? ' 👑' : w.mad ? ' 🐴' : '';
-    document.getElementById('weapon-name').textContent = `${w.id}${ownTag}${w.op || w.mad ? ' [전용]' : ''}${this.reloading ? ' - 장전중...' : ''}`;
-    document.getElementById('ammo').textContent = (w.op || w.mad) ? '∞ / ∞' : `${fmt(a.mag)} / ${fmt(a.reserve)}`;
+    const ownTag = w.op ? ' 👑' : w.mad ? ' 🐴' : w.armor ? ' ⭐' : '';
+    const priv = w.op || w.mad || w.armor;
+    document.getElementById('weapon-name').textContent = `${w.id}${ownTag}${priv ? (w.armor ? ' [관리자 · 장착중 무적]' : ' [전용]') : ''}${this.reloading ? ' - 장전중...' : ''}`;
+    document.getElementById('ammo').textContent = priv ? '∞ / ∞' : `${fmt(a.mag)} / ${fmt(a.reserve)}`;
     const hb = document.getElementById('hotbar');
     hb.innerHTML = WEAPONS.map((ww, i) => {
       const aa = this.ammo[i];
-      if ((ww.op && !this.hasOpGun) || (ww.mad && !this.hasMadGun)) return ''; // 전용 무기는 권한자만 보임
-      const key = ww.op ? 'O' : ww.mad ? 'H' : (i === 9 ? 0 : i + 1);
+      if ((ww.op && !this.hasOpGun) || (ww.mad && !this.hasMadGun) || (ww.armor && !this.isAdmin)) return ''; // 전용 무기는 권한자만 보임
+      const key = ww.op ? 'O' : ww.mad ? 'H' : ww.armor ? 'U' : (i === 9 ? 0 : i + 1);
       const cls = `hslot${i === this.wi ? ' active' : ''}${this.reloading && i === this.wi ? ' reloading' : ''}`;
-      const inf = ww.op || ww.mad;
+      const inf = ww.op || ww.mad || ww.armor;
       return `<div class="${cls}" data-w="${i}"><b>[${key}] ${ww.id}</b><br><span class="mag">${inf ? '∞' : fmt(aa.mag)}</span> / ${inf ? '∞' : fmt(aa.reserve)}</div>`;
     }).join('');
     hb.querySelectorAll('.hslot').forEach(el => el.onclick = (e) => { e.stopPropagation(); this.switchWeapon(parseInt(el.dataset.w)); });
