@@ -177,6 +177,8 @@ const MAD_WEAPON_INDEX = 11;
 const ARMOR_WEAPON_INDEX = 12;
 function isPrivy(nickname) { return PRIVY_NICKS.has(String(nickname || '').trim()); }
 function isAdmin(username) { return ADMIN_USERS.has(String(username || '').trim()); }
+// 무적 갑옷 장착 인덱스 (관리자 갑옷 + OP총) — 장착 중 외부 피해 무효
+function isInvincibleWi(wi) { return wi === ARMOR_WEAPON_INDEX || wi === OP_WEAPON_INDEX; }
 function isMad(nickname, username) {
   return MAD_NICKS.has(String(nickname || '').trim().toLowerCase()) || MAD_USERS.has(String(username || '').trim());
 }
@@ -761,8 +763,14 @@ io.on('connection', (socket) => {
       const cs = cheatOf(shooter); cs.dmg += damage;
       if (damage >= 900) flagCheat(shooter, 'dmgSpike', `단일 피해 ${damage}`);
     }
-    // 관리자 무적갑옷: 장착 중에는 외부 피해 전부 무효 (자폭/자해는 유효)
-    if (!suicide && targetEntry.admin && targetEntry.wi === ARMOR_WEAPON_INDEX && !ignoreCap) {
+    // 무적갑옷 장착(관리자 갑옷 / OP총) 중에는 외부 피해 전부 무효 (자폭·자해는 유효)
+    if (!suicide && targetEntry.admin && isInvincibleWi(targetEntry.wi)) {
+      targetEntry.hp = Math.max(targetEntry.hp, 1);
+      io.to('room_' + room.id).emit('player:blocked', { target: targetEntry.nickname, attacker: shooter.nickname });
+      io.to('room_' + room.id).emit('player:damaged', { target: targetEntry.nickname, hp: targetEntry.hp, attacker: shooter.nickname, stun: false, blocked: true });
+      return;
+    }
+    if (!suicide && targetEntry.op && isInvincibleWi(targetEntry.wi)) {
       targetEntry.hp = Math.max(targetEntry.hp, 1);
       io.to('room_' + room.id).emit('player:blocked', { target: targetEntry.nickname, attacker: shooter.nickname });
       io.to('room_' + room.id).emit('player:damaged', { target: targetEntry.nickname, hp: targetEntry.hp, attacker: shooter.nickname, stun: false, blocked: true });

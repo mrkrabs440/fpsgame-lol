@@ -693,6 +693,19 @@ export class FPSGame {
       const tipCone = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.16, 10), glow);
       tipCone.rotation.x = -Math.PI / 2; tipCone.position.set(0, 0.01, -0.92);
       g.add(tipCone);
+      // 무지개 갑옷 (OP총 장착 시 무적 — 몸에 붙는 개드렛 갑옷)
+      const RB = [0xff3b3b, 0xff9f1c, 0xffd93d, 0x6bdf4a, 0x3ad1ff, 0x8b5cf6, 0xff4fd8];
+      for (let i2 = 0; i2 < 7; i2++) {
+        const rm = new THREE.MeshLambertMaterial({ color: RB[i2] });
+        add(new THREE.BoxGeometry(0.086, 0.011, 0.46), rm, 0, 0.028 + i2 * 0.013, -0.22);
+      }
+      for (const sx of [-1, 1]) { // 어깨 보호대
+        const pl = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.05, 0.16), new THREE.MeshLambertMaterial({ color: RB[sx > 0 ? 5 : 0] }));
+        pl.position.set(0.075 * sx, 0.075, -0.1); pl.rotation.z = sx * 0.25; g.add(pl);
+      }
+      const halo = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.008, 6, 16), new THREE.MeshBasicMaterial({ color: 0x66f0ff }));
+      halo.rotation.x = Math.PI / 2; halo.position.set(0, 0.01, -0.35); g.add(halo);
+      g.userData.halo = halo;
     } else if (i === 11) { // 미친말총 = 갈색 조랑말 그 자체 (몸통이 곧 총기)
       g.children.slice().forEach(m => g.remove(m));
       const fur = new THREE.MeshLambertMaterial({ color: 0x8b5a2b });     // 갈색 털
@@ -908,7 +921,7 @@ export class FPSGame {
     const grid = document.getElementById('shop-grid');
     grid.innerHTML = WEAPONS.map((w, i) => {
       const locked = (w.op && !this.hasOpGun) || (w.mad && !this.hasMadGun) || (w.armor && !this.isAdmin);
-      const label = w.op ? '즉사 · 무한탄 · 관통 · 벽무시'
+      const label = w.op ? '즉사 · 무한탄 · 관통 · 벽무시 · 🛡장착중무적'
         : w.mad ? '🐴 갈색 조랑말 · 즉사 · 적팀전원처형'
         : w.armor ? '🛡 무적 · 개뇌절개 · 초딩개잼'
         : (w.melee ? `근접 ${w.dmg} · 사거리 ${w.range}m` : `대미지 ${w.dmg} · ${w.pellets ? w.pellets + '펠릿' : w.mag + '발'}`);
@@ -1614,15 +1627,15 @@ export class FPSGame {
       r.muzzle.scale.setScalar(0.8 + Math.random() * 0.7);
       r.gunG.position.z = -0.4 + 0.05;
     } else { r.muzzle.visible = false; r.gunG.position.z += (-0.4 - r.gunG.position.z) * Math.min(1, dt * 12); }
-    // 관리자 갑옷 장착 시 무지개 광택 (상대에게 개드렛되는 병맛 연출)
-    if (r.wi === ARMOR_INDEX && r.hitT <= 0) {
+    // 무적갑옷 장착(관리자 갑옷/OP총) 시 무지개 광택
+    if ((r.wi === ARMOR_INDEX || r.wi === OP_INDEX) && r.hitT <= 0) {
       const hue = (time * 0.6) % 1;
       const pal = [0xff3060, 0xffc830, 0x40ff60, 0x40c8ff, 0xa040ff];
       r.mats.forEach((mm, mi) => { mm.emissive.setHex(pal[(Math.floor(hue * 5) + mi) % 5]).multiplyScalar(0.3); });
     }
     // 피탄 적색 점멸
     if (r.hitT > 0) { r.hitT -= dt; r.mats.forEach(m => m.emissive.setHex(0x771111)); }
-    else if (r.wi !== ARMOR_INDEX) r.mats.forEach(m => m.emissive.setHex(0x000000));
+    else if (r.wi !== ARMOR_INDEX && r.wi !== OP_INDEX) r.mats.forEach(m => m.emissive.setHex(0x000000));
     m.rotation.y = r.yaw || 0;
   }
 
@@ -2195,7 +2208,7 @@ export class FPSGame {
     const fmt = (v) => isFinite(v) ? v : '∞';
     const ownTag = w.op ? ' 👑' : w.mad ? ' 🐴' : w.armor ? ' ⭐' : '';
     const priv = w.op || w.mad || w.armor;
-    document.getElementById('weapon-name').textContent = `${w.id}${ownTag}${priv ? (w.armor ? ' [관리자 · 장착중 무적]' : ' [전용]') : ''}${this.reloading ? ' - 장전중...' : ''}`;
+    document.getElementById('weapon-name').textContent = `${w.id}${ownTag}${priv ? (w.armor ? ' [관리자 · 장착중 무적]' : w.op ? ' [전용 · 장착중 무적]' : ' [전용]') : ''}${this.reloading ? ' - 장전중...' : ''}`;
     document.getElementById('ammo').textContent = priv ? '∞ / ∞' : `${fmt(a.mag)} / ${fmt(a.reserve)}`;
     const hb = document.getElementById('hotbar');
     hb.innerHTML = WEAPONS.map((ww, i) => {
