@@ -214,7 +214,10 @@ socket.on('room:joined', (d) => {
     setTimeout(() => { if (game && !game.disposed) game.openLoadout(true); }, 700); // 첫 라운드 무기 선택
   } catch (e) {
     console.error(e);
-    alert('게임 시작 오류: ' + e.message + '\n(인터넷 연결 필요: Three.js CDN)');
+    // 실제 원인을 먼저 보여준다 (Three.js CDN 미로딩이면 별도 안내)
+    const isNet = /three|import|fetch|module|Failed to resolve/i.test(e.message || '');
+    alert('게임 시작 실패\n\n원인: ' + (e.message || e) +
+      (isNet ? '\n\n· 인터넷 연결 / CDN 차단 여부를 확인하세요 (three.js)' : '\n\n· 서버 로그(콘솔 F12)를 확인하세요'));
   }
 });
 

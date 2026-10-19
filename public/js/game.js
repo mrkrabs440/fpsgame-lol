@@ -673,6 +673,7 @@ export class FPSGame {
       add(new THREE.BoxGeometry(0.05, 0.02, 0.03), mid, 0, -0.02, -0.08); // 가드
     } else if (i === 10) { // 검 (장검)
       const blade = new THREE.MeshLambertMaterial({ color: 0xd6e2ee });
+      const gold = new THREE.MeshLambertMaterial({ color: 0xd4a017 });
       add(new THREE.BoxGeometry(0.016, 0.075, 0.72), blade, 0, 0.02, -0.42); // blade
       add(new THREE.BoxGeometry(0.012, 0.02, 0.12), blade, 0, 0.075, -0.78); // 첨부
       add(new THREE.BoxGeometry(0.12, 0.025, 0.04), mid, 0, -0.015, -0.05); // 가드
@@ -868,14 +869,15 @@ export class FPSGame {
       const i = parseInt(it.dataset.s), slot = parseInt(it.dataset.slot);
       this.loadout[slot] = i;
       this.ammo[i] = { mag: WEAPONS[i].mag, reserve: WEAPONS[i].reserve };
-      this.reloading = false;
-      if (!this.loadout.includes(this.wi)) this.switchWeapon(this.loadout[0]);
+      this.reloading = false; this.reloadSeq++; // 재장전 예약 무효화
+      if (!this.loadout.includes(this.wi)) { this.wi = this.loadout[0]; this.vmSwitchT = 0.2; this.vmGuns.forEach((g, k) => g.visible = k === this.wi); this.updateVmFlashPos(); }
       Sfx.capture(); this.buildShop(); this.updateHUD();
     });
     const ok = document.getElementById('btn-shop-ok');
     if (ok) ok.onclick = (e) => {
       e.stopPropagation();
       this.loadoutLocked = true;
+      if (!this.loadout.includes(this.wi)) { this.wi = this.loadout[0]; this.vmGuns.forEach((g, k) => g.visible = k === this.wi); this.updateVmFlashPos(); }
       document.getElementById('shop').classList.add('hidden');
       this.canvas.requestPointerLock();
       this.feed(`🔫 라운드 무기 확정: ${WEAPONS[this.loadout[0]].id} + ${WEAPONS[this.loadout[1]].id}`);
@@ -1261,6 +1263,7 @@ export class FPSGame {
     s.on('round:next', (d) => {
       this.serverState = d.state; this.resetMatch(false);
       this.openLoadout(true); // 매 라운드 원거리1 + 근접1 선택
+      this.feed('🎯 이번 라운드 무기를 선택하세요 (원거리 1개 + 근접 1개)');
       document.getElementById('match-end').classList.add('hidden');
       const ov = document.getElementById('round-overlay');
       ov.textContent = `― ROUND ${d.state.round} ―`; ov.classList.remove('hidden');
@@ -1393,6 +1396,7 @@ export class FPSGame {
     const armL = mkArm(-1), armR = mkArm(1);
     // 소총 (가슴 전방): 든 무기별 외형 전환
     const silverM = new THREE.MeshLambertMaterial({ color: 0x9aa0a8 });
+    const woodM = new THREE.MeshLambertMaterial({ color: 0x6a4a26 });
     const gunG = new THREE.Group(); gunG.position.set(0.14, 0.28, -0.4); torsoG.add(gunG);
     const mkV = (fn) => { const v = new THREE.Group(); fn(v); v.visible = false; gunG.add(v); return v; };
     const vb = (grp, w, h, d, m, x, y, z) => { const ms = B(w, h, d, m, x, y, z); grp.add(ms); return ms; };
@@ -1406,11 +1410,11 @@ export class FPSGame {
       rpg: mkV(v => { const t = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.95, 8), darkM); t.rotation.x = Math.PI / 2; t.position.set(0, 0, -0.2); v.add(t); vb(v, 0.05, 0.12, 0.08, darkM, 0, -0.1, 0.0); }),
       taser: mkV(v => { const ym = new THREE.MeshLambertMaterial({ color: 0xd8b800 }); vb(v, 0.055, 0.085, 0.24, ym, 0, 0, -0.05); vb(v, 0.045, 0.11, 0.06, darkM, 0, -0.08, 0.05); }),
       lmg: mkV(v => { vb(v, 0.09, 0.12, 0.5, darkM, 0, 0, -0.1); vb(v, 0.07, 0.14, 0.12, darkM, 0, -0.11, 0.0); vb(v, 0.03, 0.03, 0.4, darkM, 0.03, 0.02, -0.4); vb(v, 0.03, 0.03, 0.4, darkM, -0.03, 0.02, -0.4); }),
-      sword: mkV(v => { const bl = new THREE.MeshLambertMaterial({ color: 0xc8d4e0 }); vb(v, 0.018, 0.08, 0.62, bl, 0, 0.02, -0.32); vb(v, 0.1, 0.03, 0.04, darkM, 0, -0.02, -0.02); vb(v, 0.035, 0.05, 0.14, wood, 0, -0.04, 0.06); }),
-      axe: mkV(v => { const bl = new THREE.MeshLambertMaterial({ color: 0xb8c2cc }); vb(v, 0.032, 0.032, 0.42, wood, 0, -0.02, -0.16); vb(v, 0.05, 0.17, 0.035, bl, 0, 0.0, -0.36); vb(v, 0.14, 0.05, 0.035, bl, 0.04, 0.06, -0.36); }),
-      hammer: mkV(v => { const bl = new THREE.MeshLambertMaterial({ color: 0x8f979f }); vb(v, 0.036, 0.036, 0.44, wood, 0, -0.02, -0.18); vb(v, 0.1, 0.1, 0.19, bl, 0, 0.01, -0.42); }),
+      sword: mkV(v => { const bl = new THREE.MeshLambertMaterial({ color: 0xc8d4e0 }); vb(v, 0.018, 0.08, 0.62, bl, 0, 0.02, -0.32); vb(v, 0.1, 0.03, 0.04, darkM, 0, -0.02, -0.02); vb(v, 0.035, 0.05, 0.14, woodM, 0, -0.04, 0.06); }),
+      axe: mkV(v => { const bl = new THREE.MeshLambertMaterial({ color: 0xb8c2cc }); vb(v, 0.032, 0.032, 0.42, woodM, 0, -0.02, -0.16); vb(v, 0.05, 0.17, 0.035, bl, 0, 0.0, -0.36); vb(v, 0.14, 0.05, 0.035, bl, 0.04, 0.06, -0.36); }),
+      hammer: mkV(v => { const bl = new THREE.MeshLambertMaterial({ color: 0x8f979f }); vb(v, 0.036, 0.036, 0.44, woodM, 0, -0.02, -0.18); vb(v, 0.1, 0.1, 0.19, bl, 0, 0.01, -0.42); }),
       sickle: mkV(v => { const bl = new THREE.MeshLambertMaterial({ color: 0xd0dae4 }); vb(v, 0.035, 0.05, 0.13, darkM, 0, -0.02, 0.03); vb(v, 0.014, 0.05, 0.3, bl, 0.03, 0.0, -0.18); vb(v, 0.014, 0.09, 0.14, bl, 0.055, 0.04, -0.36); }),
-      fan: mkV(v => { const fm = new THREE.MeshLambertMaterial({ color: 0xf0e0c0 }); for (let b = 0; b < 7; b++) { const a2 = (b - 3) * 0.22; const st = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.005, 0.3), fm); st.position.set(Math.sin(a2) * 0.1, 0, -0.18); st.rotation.y = -a2; v.add(st); } vb(v, 0.04, 0.03, 0.09, wood, 0, 0, 0.02); }),
+      fan: mkV(v => { const fm = new THREE.MeshLambertMaterial({ color: 0xf0e0c0 }); for (let b = 0; b < 7; b++) { const a2 = (b - 3) * 0.22; const st = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.005, 0.3), fm); st.position.set(Math.sin(a2) * 0.1, 0, -0.18); st.rotation.y = -a2; v.add(st); } vb(v, 0.04, 0.03, 0.09, woodM, 0, 0, 0.02); }),
     };
     gunMeshes.rifle.visible = true;
     const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 5),
@@ -2098,11 +2102,22 @@ export class FPSGame {
     document.getElementById('weapon-name').textContent = `${w.id} ${w.melee ? '🗡' : '🔫'}${this.reloading ? ' - 장전중...' : ''}`;
     document.getElementById('ammo').textContent = w.melee ? '∞' : `${fmt(a.mag)} / ${fmt(a.reserve)}`;
     const hb = document.getElementById('hotbar');
-    hb.innerHTML = this.loadout.map((wi, slot) => {
-      const ww = WEAPONS[wi], aa = this.ammo[wi];
-      const cls = `hslot${wi === this.wi ? ' active' : ''}${this.reloading && wi === this.wi ? ' reloading' : ''}`;
-      return `<div class="${cls}" data-w="${wi}"><b>[${slot + 1}] ${ww.id}</b><br><span class="mag">${ww.melee ? '∞' : fmt(aa.mag)}</span>${ww.melee ? '' : ' / ' + fmt(aa.reserve)}</div>`;
-    }).join('');
+    if (this.room.mode === 'gungame') {
+      // 건게임은 킬수로 무기가 바뀌므로 현재 + 다음단계만 표시
+      const cur = this.wi;
+      const nxt = GUNGAME_ORDER[Math.min(this.kills + 1, GUNGAME_ORDER.length - 1)];
+      hb.innerHTML = [[cur, '현재'], [nxt, '다음']].map(([wi, tag]) => {
+        const ww = WEAPONS[wi], aa = this.ammo[wi];
+        const cls = `hslot${wi === this.wi ? ' active' : ''}`;
+        return `<div class="${cls}" data-w="${wi}"><b>${tag} ${ww.id}</b><br><span class="mag">${ww.melee ? '∞' : fmt(aa.mag)}</span>${ww.melee ? '' : ' / ' + fmt(aa.reserve)}</div>`;
+      }).join('');
+    } else {
+      hb.innerHTML = this.loadout.map((wi, slot) => {
+        const ww = WEAPONS[wi], aa = this.ammo[wi];
+        const cls = `hslot${wi === this.wi ? ' active' : ''}${this.reloading && wi === this.wi ? ' reloading' : ''}`;
+        return `<div class="${cls}" data-w="${wi}"><b>[${slot + 1}] ${ww.id}</b><br><span class="mag">${ww.melee ? '∞' : fmt(aa.mag)}</span>${ww.melee ? '' : ' / ' + fmt(aa.reserve)}</div>`;
+      }).join('');
+    }
     hb.querySelectorAll('.hslot').forEach(el => el.onclick = (e) => { e.stopPropagation(); this.switchWeapon(parseInt(el.dataset.w)); });
     document.getElementById('hp-fill').style.width = this.hp + '%';
     document.getElementById('hp-text').textContent = Math.max(0, Math.round(this.hp));
