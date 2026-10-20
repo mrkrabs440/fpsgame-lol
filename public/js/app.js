@@ -211,7 +211,7 @@ socket.on('room:joined', (d) => {
     game = new FPSGame({ canvas: $('game-canvas'), socket, room: currentRoom, team: myTeam, nick: myNick, admin: !!d.admin, state: d.state });
     game.start();
     if (d.loadout) game.setLoadout(d.loadout); // start() 이후 (pos/맵 초기화 후)
-    setTimeout(() => { if (game && !game.disposed) game.openLoadout(true); }, 700); // 첫 라운드 무기 선택
+    game.openLoadout(true); // 첫 라운드 무기 선택 (즉시 — 참가 클릭 불필요)
   } catch (e) {
     console.error(e);
     // 실제 원인을 먼저 보여준다 (Three.js CDN 미로딩이면 별도 안내)

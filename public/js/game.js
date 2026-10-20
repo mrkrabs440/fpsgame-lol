@@ -81,6 +81,7 @@ export class FPSGame {
     this.canvas = canvas; this.socket = socket;
     this.room = room; this.team = team; this.nick = nick;
     this.isAdmin = !!admin;   // 관리자 (핵 권한, 서버 판정)
+    this.modalOpen = false;   // 무기선택 모달 열림 여부 (참가 오버레이 제어)
     this.nukeT = 0;           // 핵 잔여 시간
     this.nukeCd = 0;          // 연사 쿨다운
     this.nukeOn = false;
@@ -121,6 +122,7 @@ export class FPSGame {
   }
 
   start() {
+    this.hideJoinOverlay();
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     this.renderer.setSize(innerWidth, innerHeight);
@@ -781,11 +783,18 @@ export class FPSGame {
       document.getElementById('click-to-play').style.display = 'none';
     };
     document.addEventListener('pointerlockchange', this.plc = () => {
-      if (document.pointerLockElement !== this.canvas)
+      // 무기선택 모달이 열려있을 때는 참가 오버레이를 띄우지 않는다
+      if (document.pointerLockElement !== this.canvas && !this.modalOpen)
         document.getElementById('click-to-play').style.display = 'flex';
     });
     document.getElementById('btn-leave').onclick = () => { this.socket.emit('room:leave'); location.reload(); };
-    document.getElementById('btn-shop-close').onclick = (e) => { e.stopPropagation(); this.toggleShop(); };
+    document.getElementById('btn-shop-close').onclick = (e) => {
+      e.stopPropagation();
+      document.getElementById('shop').classList.add('hidden');
+      this.modalOpen = false;
+      const pr = this.canvas.requestPointerLock();
+      if (pr && pr.catch) pr.catch(() => this.showJoinOverlay());
+    };
     document.getElementById('btn-continue').onclick = () => document.getElementById('match-end').classList.add('hidden');
     document.getElementById('btn-tolobby').onclick = () => { this.socket.emit('room:leave'); location.reload(); };
     document.getElementById('chat-input').addEventListener('keydown', this.chatKd = (e) => {
@@ -843,15 +852,33 @@ export class FPSGame {
     if (!el) return;
     if (this.room.mode === 'gungame') { this.feed('건게임에선 무기 선택 사용 불가!'); return; }
     if (el.classList.contains('hidden')) {
-      document.exitPointerLock(); this.buildShop(); el.classList.remove('hidden');
-    } else { el.classList.add('hidden'); this.canvas.requestPointerLock(); }
+      document.exitPointerLock();
+      this.modalOpen = true;
+      this.hideJoinOverlay();
+      this.buildShop(); el.classList.remove('hidden');
+    } else {
+      el.classList.add('hidden');
+      this.modalOpen = false;
+      this.canvas.requestPointerLock();
+    }
+  }
+  // 참가 오버레이 숨김/표시 헬퍼
+  hideJoinOverlay() {
+    const o = document.getElementById('click-to-play');
+    if (o) o.style.display = 'none';
+  }
+  showJoinOverlay() {
+    const o = document.getElementById('click-to-play');
+    if (o && !this.modalOpen) o.style.display = 'flex';
   }
   // 라운드 시작 시 자동 오픈 (무기 확정 전에는 조작 잠금)
   openLoadout(auto) {
     const el = document.getElementById('shop');
     if (!el) return;
     this.loadoutLocked = false;
+    this.modalOpen = true;
     document.exitPointerLock();
+    this.hideJoinOverlay();
     this.buildShop();
     el.classList.remove('hidden');
     const head = el.querySelector('h2');
@@ -885,7 +912,10 @@ export class FPSGame {
       this.loadoutLocked = true;
       if (!this.loadout.includes(this.wi)) { this.wi = this.loadout[0]; this.vmGuns.forEach((g, k) => g.visible = k === this.wi); this.updateVmFlashPos(); }
       document.getElementById('shop').classList.add('hidden');
-      this.canvas.requestPointerLock();
+      this.modalOpen = false;
+      this.hideJoinOverlay();
+      const pr = this.canvas.requestPointerLock();
+      if (pr && pr.catch) pr.catch(() => this.showJoinOverlay());
       this.feed(`🔫 라운드 무기 확정: ${WEAPONS[this.loadout[0]].id} + ${WEAPONS[this.loadout[1]].id}`);
     };
   }
