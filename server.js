@@ -677,7 +677,7 @@ io.on('connection', (socket) => {
     if (!user) return socket.emit('auth:fail');
     if (checkSeasonRollover(user)) saveUsers(users);
     players.set(socket.id, { socketId: socket.id, userId: user.id, nickname: user.nickname, admin: isAdmin(user.username), akOk: user.nickname === AK_SPECIAL_NICK, loadout: [...DEFAULT_LO], roomId: null, team: null, hp: 100, alive: true, kills: 0, deaths: 0, money: 800, pos: { x: 0, y: 1.7, z: 0 }, yaw: 0 });
-    socket.emit('auth:ok', { nickname: user.nickname, admin: isAdmin(user.username) });
+    socket.emit('auth:ok', { nickname: user.nickname });
     socket.emit('lobby:update', { rooms: [...rooms.values()].map(publicRoom) });
   });
 
@@ -690,7 +690,7 @@ io.on('connection', (socket) => {
     if (room.order.includes(socket.id)) {
       // 이미 입장 상태면 상태만 재전송 (중복입장 방지)
       socket.join('room_' + roomId);
-      return socket.emit('room:joined', { room: publicRoom(room), team: p.team, state: room.state, you: p.nickname, admin: !!p.admin, loadout: p.loadout });
+      return socket.emit('room:joined', { room: publicRoom(room), team: p.team, state: room.state, you: p.nickname, loadout: p.loadout });
     }
     if (room.order.length >= room.maxPlayers) return socket.emit('error:msg', '방이 가득 찼습니다.');
     // 기존 방 떠나기
@@ -700,7 +700,7 @@ io.on('connection', (socket) => {
     p.hp = 100; p.alive = true;
     room.order.push(socket.id);
     socket.join('room_' + roomId);
-    socket.emit('room:joined', { room: publicRoom(room), team: p.team, state: room.state, you: p.nickname, admin: !!p.admin, loadout: p.loadout });
+    socket.emit('room:joined', { room: publicRoom(room), team: p.team, state: room.state, you: p.nickname, loadout: p.loadout });
     io.to('room_' + roomId).emit('room:players', roomPlayers(roomId));
     io.to('room_' + roomId).emit('chat:msg', { sys: true, text: `▶ ${p.nickname} (${p.team}) 입장` });
     broadcastLobby();

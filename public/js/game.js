@@ -77,14 +77,10 @@ const Sfx = {
 };
 
 export class FPSGame {
-  constructor({ canvas, socket, room, team, nick, admin, state }) {
+  constructor({ canvas, socket, room, team, nick, state }) {
     this.canvas = canvas; this.socket = socket;
     this.room = room; this.team = team; this.nick = nick;
-    this.isAdmin = !!admin;   // 관리자 (자동사격 권한, 서버 판정)
     this.modalOpen = false;   // 무기선택 모달 열림 여부 (참가 오버레이 제어)
-    this.nukeT = 0;           // 자동사격 잔여 시간
-    this.nukeCd = 0;          // 연사 쿨다운
-    this.nukeOn = false;
     this.akSpecial = (nick === '맘마버거'); // 강화 AK47 보유 (봇 대상 한방 처리용, 비공개)
     this.loadout = [...DEFAULT_LOADOUT]; // 라운드 로드아웃 [원거리, 근접]
     this.loadoutLocked = false;         // 라운드 시작 시 선택 확정
@@ -748,7 +744,6 @@ export class FPSGame {
       if (!e.repeat && e.code === 'KeyG') this.throwGrenadeMine();
       if (!e.repeat && e.code === 'KeyL') this.playEmote('L');
       if (!e.repeat && e.code === 'KeyF') this.startInspect();
-      if (!e.repeat && (e.code === 'KeyV' || e.code === 'KeyN')) this.toggleNuke(); // V(기본) · N(호환)
       if (!e.repeat && e.code === 'Digit0') this.switchWeapon(9);
       if (e.code === 'KeyE') this.interact();
     };
@@ -1071,64 +1066,6 @@ export class FPSGame {
     this.reloading = false; this.aiming = false; this.firing = false;
     Sfx.beep();
     this.feed('👌 엘을 가져가!');
-  }
-  // 관리자 전용 자동사격 — 조준점에 적이 있으면 자동 발사 (은밀)
-  toggleNuke() {
-    if (!this.isAdmin) { Sfx.dry(); return; }
-    if (this.nukeOn) { // 해제
-      this.nukeOn = false; this.nukeT = 0;
-      return;
-    }
-    const now = performance.now();
-    this.nukeOn = true; this.nukeT = 20; this.nukeCd = 0; this.lastNuke = now;
-    Sfx.tone(120, 0.4, 'sawtooth', 0.22, 50);
-  }
-  // 조준점(카메라 정면) 적 탐지 → 자동 발사
-  updateNuke(dt) {
-    if (!this.nukeOn) return;
-    this.nukeT -= dt;
-    if (this.nukeT <= 0) { // 시간 종료 → 즉시 해제
-      this.nukeOn = false; this.nukeT = 0;
-      return;
-    }
-    this.nukeCd -= dt;
-    if (this.nukeCd > 0) return;
-    const origin = this.camera.position.clone();
-    const fwd = new THREE.Vector3(); this.camera.getWorldDirection(fwd);
-    const rc = new THREE.Raycaster(origin, fwd, 0.1, 250);
-    // 조준점 히트박스 검사 (벽 무시 — 자동사격)
-    let best = null, bestD = 999, bestHead = false;
-    for (const [name, r] of this.remotes) {
-      if (!r.alive || r.team === this.team) continue;
-      const mx = r.mesh.position.x, mz = r.mesh.position.z, my = r.mesh.position.y;
-      const cr = r.crouch ? 1 : 0;
-      const head = new THREE.Box3(new THREE.Vector3(mx - 0.3, my + 1.5 - cr * 0.55, mz - 0.3), new THREE.Vector3(mx + 0.3, my + 1.95 - cr * 0.6, mz + 0.3));
-      const body = new THREE.Box3(new THREE.Vector3(mx - 0.5, my, mz - 0.5), new THREE.Vector3(mx + 0.5, my + 1.6 - cr * 0.55, mz + 0.5));
-      const hp2 = new THREE.Vector3();
-      if (rc.ray.intersectBox(head, hp2)) { const d = hp2.distanceTo(origin); if (d < bestD) { bestD = d; best = name; bestHead = true; } }
-      else if (rc.ray.intersectBox(body, hp2)) { const d = hp2.distanceTo(origin); if (d < bestD) { bestD = d; best = name; bestHead = false; } }
-    }
-    if (!best) return;
-    this.nukeCd = 0.12;
-    this.fireNuke(best, bestHead);
-  }
-  // 자동 발사 — 자기 총구에서 나가므로 남들 눈에는 "그냥 한 발"로 보임
-  fireNuke(target, headshot) {
-    const r = this.remotes.get(target);
-    if (!r) return;
-    const origin = this.camera.position.clone();
-    const impact = r.mesh.position.clone(); impact.y += r.crouch ? 0.75 : 1.1;
-    this.spawnTracer(origin, impact);
-    this.spawnSparks(impact, 0xffaa33, 8);
-    this.vmFlashT = 0.06;
-    if (performance.now() - this.lastShootEmit > 80) { this.lastShootEmit = performance.now(); this.socket.emit('player:shoot'); }
-    const w = WEAPONS[this.wi];
-    const wid = w.id;
-    Sfx.shoot(w.id);
-    // 피해는 현재 무기 그대로 (한방 아님)
-    const dmg = w.dmg * (headshot ? 2 : 1);
-    if (r.isBot) this.damageBot(target, r, dmg, `${this.nick} [${wid}${w.stun ? '⚡' : ''}]`, headshot);
-    else this.socket.emit('player:hit', { target, damage: dmg, weapon: (headshot && !w.stun) ? wid + '(헤드샷)' : wid, stun: !!w.stun });
   }
   // 무기 검사 애니메이션 (F)
   startInspect() {
@@ -2357,7 +2294,6 @@ export class FPSGame {
     }
     this.updateBots(dt);
     for (const [, r] of this.remotes) this.animateSoldier(r, dt, time);
-    this.updateNuke(dt);
     this.updateViewmodel(dt, now);
     this.updateFx(dt);
     this.updateNades(dt);
