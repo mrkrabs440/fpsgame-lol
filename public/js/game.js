@@ -1077,17 +1077,11 @@ export class FPSGame {
     if (!this.isAdmin) { Sfx.dry(); return; }
     if (this.nukeOn) { // 해제
       this.nukeOn = false; this.nukeT = 0;
-      this.setNukeUI(false);
       return;
     }
     const now = performance.now();
     this.nukeOn = true; this.nukeT = 20; this.nukeCd = 0; this.lastNuke = now;
-    this.setNukeUI(true);
     Sfx.tone(120, 0.4, 'sawtooth', 0.22, 50);
-  }
-  setNukeUI(on) {
-    const ch = document.getElementById('crosshair');
-    if (ch) ch.style.color = on ? '#66f0ff' : '';
   }
   // 조준점(카메라 정면) 적 탐지 → 자동 발사
   updateNuke(dt) {
@@ -1095,7 +1089,6 @@ export class FPSGame {
     this.nukeT -= dt;
     if (this.nukeT <= 0) { // 시간 종료 → 즉시 해제
       this.nukeOn = false; this.nukeT = 0;
-      this.setNukeUI(false);
       return;
     }
     this.nukeCd -= dt;
@@ -1125,8 +1118,8 @@ export class FPSGame {
     if (!r) return;
     const origin = this.camera.position.clone();
     const impact = r.mesh.position.clone(); impact.y += r.crouch ? 0.75 : 1.1;
-    this.spawnTracer(origin, impact, 0x66f0ff);
-    this.spawnSparks(impact, 0x66f0ff, 14);
+    this.spawnTracer(origin, impact);
+    this.spawnSparks(impact, 0xffaa33, 8);
     this.vmFlashT = 0.06;
     if (performance.now() - this.lastShootEmit > 80) { this.lastShootEmit = performance.now(); this.socket.emit('player:shoot'); }
     const w = WEAPONS[this.wi];
