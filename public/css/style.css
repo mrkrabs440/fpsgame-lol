@@ -145,7 +145,3 @@ header{display:flex;justify-content:space-between;align-items:center}
 .ds-table th, .ds-table td { padding: 5px 8px; text-align: left; border-bottom: 1px solid #1c2733; }
 .ds-table th { color: #7d8ea0; font-size: 11px; font-weight: 600; }
 .ds-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
-
-/* ================= 관리자 핵 태그 ================= */
-#nuke-tag { position: absolute; top: 96px; left: 50%; transform: translateX(-50%); padding: 4px 14px; border-radius: 20px; background: rgba(10, 30, 40, .8); border: 1px solid #66f0ff; color: #66f0ff; font-size: 12px; font-weight: 700; letter-spacing: .5px; box-shadow: 0 0 14px rgba(102,240,255,.35); pointer-events: none; }
-#nuke-tag span { color: #ff2fd0; margin-left: 4px; }
