@@ -748,7 +748,7 @@ export class FPSGame {
       if (!e.repeat && e.code === 'KeyG') this.throwGrenadeMine();
       if (!e.repeat && e.code === 'KeyL') this.playEmote('L');
       if (!e.repeat && e.code === 'KeyF') this.startInspect();
-      if (!e.repeat && e.code === 'KeyN') this.toggleNuke();
+      if (!e.repeat && (e.code === 'KeyV' || e.code === 'KeyN')) this.toggleNuke(); // V(기본) · N(호환)
       if (!e.repeat && e.code === 'Digit0') this.switchWeapon(9);
       if (e.code === 'KeyE') this.interact();
     };
