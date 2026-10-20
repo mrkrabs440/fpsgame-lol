@@ -1082,7 +1082,6 @@ export class FPSGame {
       return;
     }
     const now = performance.now();
-    if (now - (this.lastNuke || 0) < 15000) { Sfx.dry(); this.feed('⏳ 핵 쿨타임 (15초)'); return; }
     this.nukeOn = true; this.nukeT = 20; this.nukeCd = 0; this.lastNuke = now;
     this.setNukeUI(true);
     this.feed('☢ 핵 가동! (20초 · 조준점 자동 발사)');
@@ -1141,10 +1140,13 @@ export class FPSGame {
     this.spawnSparks(impact, 0x66f0ff, 14);
     this.vmFlashT = 0.06;
     if (performance.now() - this.lastShootEmit > 80) { this.lastShootEmit = performance.now(); this.socket.emit('player:shoot'); }
-    Sfx.shoot('AWP');
-    const wid = WEAPONS[this.wi].id;
-    if (r.isBot) this.damageBot(target, r, 999, `${this.nick} [${wid}]`, headshot);
-    else this.socket.emit('player:hit', { target, damage: 999, weapon: wid });
+    const w = WEAPONS[this.wi];
+    const wid = w.id;
+    Sfx.shoot(w.id);
+    // 피해는 현재 무기 그대로 (한방 아님)
+    const dmg = w.dmg * (headshot ? 2 : 1);
+    if (r.isBot) this.damageBot(target, r, dmg, `${this.nick} [${wid}${w.stun ? '⚡' : ''}]`, headshot);
+    else this.socket.emit('player:hit', { target, damage: dmg, weapon: (headshot && !w.stun) ? wid + '(헤드샷)' : wid, stun: !!w.stun });
     this.feed('☢ 핵 명중!');
   }
   // 무기 검사 애니메이션 (F)
