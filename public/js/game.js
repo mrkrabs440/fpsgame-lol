@@ -1025,7 +1025,7 @@ export class FPSGame {
       this.vmGuns.forEach((g, k) => { g.visible = k === this.wi; });
       this.updateVmFlashPos();
     }
-    this.updateHUD();
+    if (this.pos) this.updateHUD(); // 게임 시작 전에는 HUD 갱신 생략
   }
   // 이모트: L = "엘을 가져가" (검지 아래 + 엄지 옆 L 모양)
   playEmote(name) {
@@ -2088,6 +2088,7 @@ export class FPSGame {
 
   // ================= HUD =================
   updateHUD() {
+    if (!this.pos) return; // 초기화 전 호출 방지
     // 건게임: 킬 수로 무기 강제 변경
     if (this.room.mode === 'gungame') {
       const target = GUNGAME_ORDER[Math.min(this.kills, GUNGAME_ORDER.length - 1)];
@@ -2130,6 +2131,7 @@ export class FPSGame {
     this.updateMatchInfo();
   }
   updateMatchInfo() {
+    if (!this.pos) return;
     const st = this.serverState, el = document.getElementById('match-info'), fb = document.getElementById('flag-bar'), tm = document.getElementById('timer');
     if (!st) return;
     const rk = this.room.ranked ? '🏆경쟁 ' : '';
@@ -2195,6 +2197,7 @@ export class FPSGame {
     document.getElementById('scoreboard').innerHTML = `<h3>스코어보드 (Tab)</h3><table><tr><th>플레이어</th><th>팀</th><th>HP</th><th>전적</th></tr><tr><td>${this.nick}(나)</td><td>${this.team}</td><td>❤${Math.round(this.hp)}</td><td>K${this.kills}/D${this.deaths}</td></tr>${rows}</table>`;
   }
   drawMinimap() {
+    if (!this.pos) return; // 맵/위치 초기화 전에는 그리지 않음
     const now2 = performance.now();
     if (now2 - (this.mmT || 0) < 120) return; // 8Hz로 제한
     this.mmT = now2;

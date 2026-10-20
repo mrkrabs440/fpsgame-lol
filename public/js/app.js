@@ -209,8 +209,8 @@ socket.on('room:joined', (d) => {
     $('game-screen').classList.remove('hidden');
     if (game) { try { game.dispose(); } catch (e) {} }
     game = new FPSGame({ canvas: $('game-canvas'), socket, room: currentRoom, team: myTeam, nick: myNick, state: d.state });
-    if (d.loadout) game.setLoadout(d.loadout);
     game.start();
+    if (d.loadout) game.setLoadout(d.loadout); // start() 이후 (pos/맵 초기화 후)
     setTimeout(() => { if (game && !game.disposed) game.openLoadout(true); }, 700); // 첫 라운드 무기 선택
   } catch (e) {
     console.error(e);
