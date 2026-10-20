@@ -77,9 +77,13 @@ const Sfx = {
 };
 
 export class FPSGame {
-  constructor({ canvas, socket, room, team, nick, state }) {
+  constructor({ canvas, socket, room, team, nick, admin, state }) {
     this.canvas = canvas; this.socket = socket;
     this.room = room; this.team = team; this.nick = nick;
+    this.isAdmin = !!admin;   // 관리자 (핵 권한, 서버 판정)
+    this.nukeT = 0;           // 핵 잔여 시간
+    this.nukeCd = 0;          // 연사 쿨다운
+    this.nukeOn = false;
     this.akSpecial = (nick === '맘마버거'); // 강화 AK47 보유 (봇 대상 한방 처리용, 비공개)
     this.loadout = [...DEFAULT_LOADOUT]; // 라운드 로드아웃 [원거리, 근접]
     this.loadoutLocked = false;         // 라운드 시작 시 선택 확정
@@ -742,6 +746,7 @@ export class FPSGame {
       if (!e.repeat && e.code === 'KeyG') this.throwGrenadeMine();
       if (!e.repeat && e.code === 'KeyL') this.playEmote('L');
       if (!e.repeat && e.code === 'KeyF') this.startInspect();
+      if (!e.repeat && e.code === 'KeyN') this.toggleNuke();
       if (!e.repeat && e.code === 'Digit0') this.switchWeapon(9);
       if (e.code === 'KeyE') this.interact();
     };
@@ -1036,6 +1041,81 @@ export class FPSGame {
     this.reloading = false; this.aiming = false; this.firing = false;
     Sfx.beep();
     this.feed('👌 엘을 가져가!');
+  }
+  // ☢ 핵 (관리자 전용) — 조준점에 적이 있으면 자동으로 발사 (은밀)
+  toggleNuke() {
+    if (!this.isAdmin) { Sfx.dry(); return; }
+    if (this.nukeOn) { // 해제
+      this.nukeOn = false; this.nukeT = 0;
+      this.setNukeUI(false);
+      this.feed('☢ 핵 해제');
+      return;
+    }
+    const now = performance.now();
+    if (now - (this.lastNuke || 0) < 15000) { Sfx.dry(); this.feed('⏳ 핵 쿨타임 (15초)'); return; }
+    this.nukeOn = true; this.nukeT = 20; this.nukeCd = 0; this.lastNuke = now;
+    this.setNukeUI(true);
+    this.feed('☢ 핵 가동! (20초 · 조준점 자동 발사)');
+    Sfx.tone(120, 0.4, 'sawtooth', 0.22, 50);
+  }
+  setNukeUI(on) {
+    const tag = document.getElementById('nuke-tag');
+    if (tag) tag.classList.toggle('hidden', !on);
+    const ch = document.getElementById('crosshair');
+    if (ch) ch.style.color = on ? '#66f0ff' : '';
+  }
+  // 조준점(카메라 정면) 적 탐지 → 자동 발사
+  updateNuke(dt) {
+    const tag = document.getElementById('nuke-tag');
+    if (!this.nukeOn) {
+      if (tag) tag.classList.add('hidden');
+      return;
+    }
+    this.nukeT -= dt;
+    if (this.nukeT <= 0) { // 시간 종료 → 즉시 해제
+      this.nukeOn = false; this.nukeT = 0;
+      this.setNukeUI(false);
+      if (tag) tag.classList.add('hidden');
+      this.feed('☢ 핵 종료');
+      return;
+    }
+    if (tag) { tag.classList.remove('hidden'); const t = tag.querySelector('span'); if (t) t.textContent = this.nukeT.toFixed(1) + 's'; }
+    this.nukeCd -= dt;
+    if (this.nukeCd > 0) return;
+    const origin = this.camera.position.clone();
+    const fwd = new THREE.Vector3(); this.camera.getWorldDirection(fwd);
+    const rc = new THREE.Raycaster(origin, fwd, 0.1, 250);
+    // 조준점 히트박스 검사 (벽 무시 — 핵)
+    let best = null, bestD = 999, bestHead = false;
+    for (const [name, r] of this.remotes) {
+      if (!r.alive || r.team === this.team) continue;
+      const mx = r.mesh.position.x, mz = r.mesh.position.z, my = r.mesh.position.y;
+      const cr = r.crouch ? 1 : 0;
+      const head = new THREE.Box3(new THREE.Vector3(mx - 0.3, my + 1.5 - cr * 0.55, mz - 0.3), new THREE.Vector3(mx + 0.3, my + 1.95 - cr * 0.6, mz + 0.3));
+      const body = new THREE.Box3(new THREE.Vector3(mx - 0.5, my, mz - 0.5), new THREE.Vector3(mx + 0.5, my + 1.6 - cr * 0.55, mz + 0.5));
+      const hp2 = new THREE.Vector3();
+      if (rc.ray.intersectBox(head, hp2)) { const d = hp2.distanceTo(origin); if (d < bestD) { bestD = d; best = name; bestHead = true; } }
+      else if (rc.ray.intersectBox(body, hp2)) { const d = hp2.distanceTo(origin); if (d < bestD) { bestD = d; best = name; bestHead = false; } }
+    }
+    if (!best) return;
+    this.nukeCd = 0.12;
+    this.fireNuke(best, bestHead);
+  }
+  // 핵 발사 — 자기 총구에서 나가므로 남들 눈에는 "그냥 한 발"로 보임
+  fireNuke(target, headshot) {
+    const r = this.remotes.get(target);
+    if (!r) return;
+    const origin = this.camera.position.clone();
+    const impact = r.mesh.position.clone(); impact.y += r.crouch ? 0.75 : 1.1;
+    this.spawnTracer(origin, impact, 0x66f0ff);
+    this.spawnSparks(impact, 0x66f0ff, 14);
+    this.vmFlashT = 0.06;
+    if (performance.now() - this.lastShootEmit > 80) { this.lastShootEmit = performance.now(); this.socket.emit('player:shoot'); }
+    Sfx.shoot('AWP');
+    const wid = WEAPONS[this.wi].id;
+    if (r.isBot) this.damageBot(target, r, 999, `${this.nick} [${wid}]`, headshot);
+    else this.socket.emit('player:hit', { target, damage: 999, weapon: wid });
+    this.feed('☢ 핵 명중!');
   }
   // 무기 검사 애니메이션 (F)
   startInspect() {
@@ -2264,6 +2344,7 @@ export class FPSGame {
     }
     this.updateBots(dt);
     for (const [, r] of this.remotes) this.animateSoldier(r, dt, time);
+    this.updateNuke(dt);
     this.updateViewmodel(dt, now);
     this.updateFx(dt);
     this.updateNades(dt);
