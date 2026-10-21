@@ -1136,7 +1136,8 @@ export class FPSGame {
     }
     // 이모트 표시: 총·팔 숨기고 L 제스처 표시
     this.vmGuns.forEach((g, k2) => { g.visible = (k2 === this.wi) && !emoting; });
-    this.vmArmL.visible = !emoting; this.vmArmR.visible = !emoting;
+    this.vmArmL.group.visible = !emoting; this.vmArmL.hand.visible = !emoting;
+    this.vmArmR.group.visible = !emoting; this.vmArmR.hand.visible = !emoting;
     this.vmLpose.visible = emoting;
     if (emoting) {
       // 실제 'Take The L' 동작: 팔 앞으로 뻗어 손을 아래로 가리키며 좌우 흔들고 손목을 천천히 회전
@@ -1220,9 +1221,10 @@ export class FPSGame {
     } else { this.vmFlashMesh.visible = false; this.flash.intensity = 0; }
     const bg = this.vmGuns[this.wi] && this.vmGuns[this.wi].userData.barrels;
     if (bg && this.firing && (this.gatSpin || 0) > 0.05) bg.rotation.z += dt * 28;
-    // 조준 시 팔 모으기
-    this.vmArmL.rotation.y += ((k > 0.5 ? 0.12 : 0.3) - this.vmArmL.rotation.y) * Math.min(1, dt * 8);
-    this.vmArmR.rotation.y += ((k > 0.5 ? -0.1 : -0.26) - this.vmArmR.rotation.y) * Math.min(1, dt * 8);
+    // 조준 시 두 손이 안쪽으로 살짝 모인다 (k: 0=일반 1=조준)
+    const adsIn = (1 - k) * 0.16;
+    if (armL && armL.hand) armL.hand.rotation.y = (armL.baseRotY || 0) - adsIn;
+    if (armR && armR.hand) armR.hand.rotation.y = (armR.baseRotY || 0) + adsIn;
   }
 
   // 라운드 로드아웃 설정 (서버 검증된 값)
