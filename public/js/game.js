@@ -534,21 +534,26 @@ export class FPSGame {
     this.vmAdsPos = new THREE.Vector3(0, -0.175, -0.38);
     this.vmRig.position.copy(this.vmHipPos);
 
-    // 팔 (팀 슬리브 + 피부 손): 카메라 아래쪽에서 시작해 화면 밖으로 이어지게 배치
+    // 팔 (팀 슬리브) + 실제 손 모델
     const sleeveCol = (this.team === 'alpha' || this.team === 'CT') ? 0x2a3d55 : 0x5a3a2a;
     const skin = new THREE.MeshLambertMaterial({ color: 0xd9a066 });
     const sleeve = new THREE.MeshLambertMaterial({ color: sleeveCol });
-    const mkArm = (x, len, rotY) => {
-      const g = new THREE.Group();
-      const fore = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, len), sleeve);
-      fore.position.z = -len / 2; g.add(fore);
-      const hand = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.085, 0.11), skin);
-      hand.position.z = -len - 0.03; g.add(hand);
-      g.position.set(x, -0.09, 0.16); g.rotation.x = 0.1; g.rotation.y = rotY;
-      this.vmRig.add(g); return g;
+
+    // 팔: 원점이 손목, +Z 방향이 팔꿈치(화면 뒤), 손은 원점에서 -Z(전방)로 뻗는다.
+    const mkArm = (len) => {
+      const grp = new THREE.Group();
+      const fore = new THREE.Mesh(new THREE.BoxGeometry(0.086, 0.086, len), sleeve);
+      fore.position.z = len / 2; grp.add(fore);
+      const cuff = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.035), sleeve);
+      cuff.position.z = 0.022; grp.add(cuff);
+      const hand = this.makeHand(skin);
+      hand.position.z = -0.012;
+      grp.add(hand);
+      this.vmRig.add(grp);
+      return { group: grp, hand, base: grp.position.clone() };
     };
-    this.vmArmL = mkArm(-0.17, 0.5, 0.3);
-    this.vmArmR = mkArm(0.17, 0.46, -0.26);
+    this.vmArmL = mkArm(0.42);
+    this.vmArmR = mkArm(0.40);
 
     // '엘을 가져가' 제스처용 팔 + L손 (검지 아래 + 엄지 옆 = L 모양, 기본 숨김)
     this.vmLpose = new THREE.Group();
@@ -558,27 +563,16 @@ export class FPSGame {
     lFore.position.z = -0.18; lFore.castShadow = true; this.vmLpose.add(lFore);
     const lCuff = new THREE.Mesh(new THREE.BoxGeometry(0.105, 0.105, 0.04), sleeve); // 소매 cuff
     lCuff.position.z = -0.35; this.vmLpose.add(lCuff);
-    // 손목 → 회전 가능한 손 그룹
-    this.vmLHand = new THREE.Group();
+    // 손목 → 회전 가능한 손 그룹 (실제 손 모델)
+    this.vmLHand = this.makeHand(skin);
     this.vmLHand.position.z = -0.37;
     this.vmLpose.add(this.vmLHand);
-    const palm = new THREE.Mesh(new THREE.BoxGeometry(0.088, 0.1, 0.085), skin);
-    palm.position.z = -0.055; this.vmLHand.add(palm);
-    // 검지: 아래로 길게 뻗음 (L의 세로 획)
-    const lFinger = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.2, 0.036), skin);
-    lFinger.position.set(0.004, -0.14, -0.055); this.vmLHand.add(lFinger);
-    const lKnuckle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.05, 0.045), skin);
-    lKnuckle.position.set(0.004, -0.055, -0.05); this.vmLHand.add(lKnuckle);
-    // 엄지: 왼쪽으로 수평 (L의 가로 획)
-    const lThumb = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.038, 0.038), skin);
-    lThumb.position.set(-0.072, -0.005, -0.055); this.vmLHand.add(lThumb);
-    // 나머지 3손가락은 주먹으로 접힘
-    for (let i = 0; i < 3; i++) {
-      const f = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.052, 0.038), skin);
-      f.position.set(0.038, -0.03, -0.038 + i * 0.038);
-      f.rotation.z = 0.5;
-      this.vmLHand.add(f);
-    }
+    // L 모양: 검지만 아래로 펴고 엄지는 옆으로, 나머지 3손가락은 주먹
+    const lf = this.vmLHand.userData.fingers;
+    lf[0].root.rotation.x = -0.1;   // 검지 살짝 편다
+    lf[0].mid.rotation.x = -0.05; lf[0].tip.rotation.x = -0.03;
+    for (let i = 1; i < 4; i += 1) { lf[i].root.rotation.x = -0.9; lf[i].mid.rotation.x = -1.5; lf[i].tip.rotation.x = -1.1; }
+    this.vmLHand.userData.setThumb(-0.35, 1.25, 0.15);
 
     // 무기 7종 실물형
     this.vmGuns = WEAPONS.map((_, i) => this.buildGunMesh(i));
@@ -594,6 +588,133 @@ export class FPSGame {
     this.vmAdsK = 0; this.vmReloadStart = -1; this.vmReloadDur = 1500;
     this.vmSwitchT = 0; this.lastShootEmit = 0;
     this.updateVmFlashPos();
+    this.applyGrip(this.wi);
+  }
+
+  // 실제 손 모델: 손바닥 + 손가락 4개(3관절) + 엄지(2관절)
+  // 손가락은 -Z(전방)로 뻗고, 자갈수록 관절이 접힌다.
+  makeHand(skinMat) {
+    const g = new THREE.Group();
+    const palm = new THREE.Mesh(new THREE.BoxGeometry(0.082, 0.03, 0.095), skinMat);
+    palm.position.set(0, 0, -0.048);
+    g.add(palm);
+    const wrist = new THREE.Mesh(new THREE.BoxGeometry(0.062, 0.05, 0.036), skinMat);
+    wrist.position.set(0, 0, 0.012);
+    g.add(wrist);
+
+    const fingers = [];
+    const FL = [0.034, 0.04, 0.037, 0.028];
+    for (let i = 0; i < 4; i += 1) {
+      const len = FL[i];
+      const root = new THREE.Group();
+      root.position.set(-0.028 + i * 0.019, 0.001, -0.092);
+      g.add(root);
+      const p1 = new THREE.Mesh(new THREE.BoxGeometry(0.017, 0.019, len), skinMat);
+      p1.position.z = -len / 2; root.add(p1);
+      const mid = new THREE.Group(); mid.position.z = -len; root.add(mid);
+      const p2 = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.017, len * 0.8), skinMat);
+      p2.position.z = -len * 0.4; mid.add(p2);
+      const tip = new THREE.Group(); tip.position.z = -len * 0.8; mid.add(tip);
+      const p3 = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.015, len * 0.55), skinMat);
+      p3.position.z = -len * 0.28; tip.add(p3);
+      fingers.push({ root, mid, tip });
+    }
+
+    // 엄지
+    const tRoot = new THREE.Group();
+    tRoot.position.set(0.03, -0.002, -0.028);
+    tRoot.rotation.set(0.25, 0.55, 0.3);
+    g.add(tRoot);
+    const t1 = new THREE.Mesh(new THREE.BoxGeometry(0.019, 0.02, 0.03), skinMat);
+    t1.position.z = -0.015; tRoot.add(t1);
+    const tMid = new THREE.Group(); tMid.position.z = -0.03; tRoot.add(tMid);
+    const t2 = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.017, 0.026), skinMat);
+    t2.position.z = -0.013; tMid.add(t2);
+    const thumb = { root: tRoot, mid: tMid };
+
+    // 포즈 헬퍼
+    g.userData.fingers = fingers;
+    g.userData.thumb = thumb;
+    g.userData.setCurl = (c) => {
+      for (const f of fingers) { f.root.rotation.x = -c * 0.5; f.mid.rotation.x = -c * 0.95; f.tip.rotation.x = -c * 0.75; }
+      thumb.root.rotation.x = 0.25 - c * 0.55;
+      thumb.mid.rotation.x = -c * 0.55;
+    };
+    g.userData.setSpread = (sp) => {
+      for (let i = 0; i < fingers.length; i += 1) fingers[i].root.rotation.y = (i - 1.5) * 0.07 * sp;
+    };
+    // 엄지 각도(총기별 그립에 맞춰 미세 조정)
+    g.userData.setThumb = (x, y, z) => { thumb.root.rotation.set(x, y, z); };
+    g.userData.setCurl(1);
+    return g;
+  }
+
+  // 무기별 그립 포인트(총기 로컬 좌표) + 손 방향
+  // right: 우측 손(그리브), left: 좌측 손(핸드가드), pistol: 권총처럼 왼손이 오른손을 받치는가
+  gripFor(i) {
+    const T = {
+      0: { right: [0, -0.1, -0.1], left: [0, -0.05, -0.4] },
+      1: { right: [0, -0.09, -0.08], left: [0, -0.05, -0.42] },
+      2: { right: [0, -0.1, -0.06], left: [0, -0.04, -0.3] },
+      3: { right: [0, -0.1, -0.16], left: [0, -0.04, -0.34] },
+      4: { right: [0, -0.09, -0.1], left: [0, -0.04, -0.35] },
+      5: { right: [0, -0.08, -0.04], left: [0.035, -0.09, 0.0], pistol: true },
+      6: { right: [0, -0.11, -0.02], left: [0, -0.04, -0.34] },
+      7: { right: [0, -0.08, -0.03], left: [0.035, -0.09, 0.0], pistol: true },
+      8: { right: [0, -0.11, -0.03], left: [0, -0.06, -0.3] },
+      9: { right: [0, -0.04, -0.06], left: null, melee: true },
+      10: { right: [0, -0.04, -0.08], left: null, melee: true },
+      11: { right: [0, -0.04, -0.08], left: null, melee: true },
+      12: { right: [0, -0.04, -0.08], left: null, melee: true },
+      13: { right: [0, -0.04, -0.08], left: null, melee: true },
+      14: { right: [0, -0.04, -0.06], left: null, melee: true },
+    };
+    return T[i] || T[0];
+  }
+
+  // 그립 적용: 팔 위치/방향 + 손가락 각도
+  applyGrip(i) {
+    const g = this.gripFor(i);
+    const gp = this.vmGuns && this.vmGuns[i];
+    const off = gp ? gp.position : { x: 0, y: -0.05, z: -0.12 };
+    const put = (arm, p, rotY, rotX) => {
+      if (!arm || !p) { if (arm) arm.group.visible = false; return; }
+      arm.group.visible = true;
+      arm.group.position.set(p[0] + off.x, p[1] + off.y, p[2] + off.z);
+      arm.group.rotation.set(rotX, rotY, 0);
+      // 원래 자세 저장(애니메이션이 이 값을 기준으로 상대 움직임)
+      arm.baseY = p[1] + off.y;
+      arm.baseZ = p[2] + off.z;
+      arm.baseRotX = rotX; arm.baseRotY = rotY; arm.baseRotZ = 0;
+    };
+    if (g.melee) {
+      // 근접무기: 한 손으로 손잡이, 다른 손은 화면 밖
+      put(this.vmArmR, g.right, -0.28, 0.18);
+      if (this.vmArmL) { this.vmArmL.group.visible = false; }
+      const h = this.vmArmR && this.vmArmR.hand;
+      if (h) {
+        h.rotation.set(-0.55, -0.2, 0);
+        h.baseRotX = -0.55; h.baseRotY = -0.2; h.baseRotZ = 0;
+        h.userData.setCurl(0.95);
+        h.userData.setThumb(0.1, 0.6, 0.25);
+      }
+      return;
+    }
+    if (g.pistol) {
+      // 권총: 오른손 그립, 왼손은 오른손 손목을 받침
+      put(this.vmArmR, g.right, -0.3, 0.22);
+      put(this.vmArmL, g.left, 0.42, 0.3);
+      const hr = this.vmArmR && this.vmArmR.hand, hl = this.vmArmL && this.vmArmL.hand;
+      if (hr) { hr.rotation.set(-1.0, -0.18, 0.1); hr.baseRotX = -1.0; hr.baseRotY = -0.18; hr.baseRotZ = 0.1; hr.userData.setCurl(1); hr.userData.setThumb(0.1, 0.7, 0.2); }
+      if (hl) { hl.rotation.set(-0.75, 0.55, -0.2); hl.baseRotX = -0.75; hl.baseRotY = 0.55; hl.baseRotZ = -0.2; hl.userData.setCurl(0.75); hl.userData.setSpread(1.2); hl.userData.setThumb(0.2, 0.9, 0.5); }
+      return;
+    }
+    // 두 손 총기: 오른손 그립 / 왼손 핸드가드
+    put(this.vmArmR, g.right, -0.32, 0.2);
+    put(this.vmArmL, g.left, 0.34, 0.16);
+    const hr = this.vmArmR && this.vmArmR.hand, hl = this.vmArmL && this.vmArmL.hand;
+    if (hr) { hr.rotation.set(-1.05, -0.15, 0.08); hr.baseRotX = -1.05; hr.baseRotY = -0.15; hr.baseRotZ = 0.08; hr.userData.setCurl(1); hr.userData.setThumb(0.15, 0.72, 0.18); }
+    if (hl) { hl.rotation.set(-0.5, 0.3, -0.25); hl.baseRotX = -0.5; hl.baseRotY = 0.3; hl.baseRotZ = -0.25; hl.userData.setCurl(0.85); hl.userData.setSpread(1.15); hl.userData.setThumb(0.3, 0.95, 0.55); }
   }
 
   // 무기별 실물 메쉬
@@ -927,6 +1048,7 @@ export class FPSGame {
     if (!this.loadout.includes(i)) { Sfx.dry(); this.feed('⚠ 이번 라운드 선택한 무기만 사용 가능'); return; }
     this.wi = i; this.vmSwitchT = 0.28; this.gatSpin = 0; this.gatLast = 0;
     this.vmGuns.forEach((g, k) => g.visible = k === i);
+    this.applyGrip(i);
     this.updateVmFlashPos(); this.updateHUD(); Sfx.reload();
   }
   reload() {
@@ -1031,7 +1153,54 @@ export class FPSGame {
         0.15 * ease + Math.sin(tb * 5.5) * 0.05,
         0.55 * (1 - ease) - wob * 0.12 * ease
       );
+      this.vmLHand.userData.setCurl(0.9 - 0.35 * ease);
+      this.vmLHand.userData.setCurl(0.9 - 0.35 * ease);
     }
+    // ---------- 손 애니메이션 ----------
+    // 실제 사람처럼: idle 호흡, 보행 스윙, 재장전은 왼손이 탄창으로, 스프린트는 왼손이 빠짐
+    const armL = this.vmArmL, armR = this.vmArmR;
+    const hl = armL && armL.hand, hr = armR && armR.hand;
+    const hTime = now / 1000;
+    const breathe = Math.sin(hTime * 1.35) * 0.006;
+    const walk = this.isMoving && this.alive ? Math.min(1, Math.abs(this.vmBob % (Math.PI * 2)) / 3) : 0;
+    const bobS = Math.sin(this.vmBob * 2) * 0.02 * walk;
+    const bobC = Math.cos(this.vmBob * 2) * 0.016 * walk;
+    // 재장전 진행도 0~1
+    const rl = (this.reloading && this.vmReloadStart > 0) ? Math.min(1, (now - this.vmReloadStart) / this.vmReloadDur) : 0;
+    // 교체(무기 스위치) 진행도
+    const sw = this.vmSwitchT > 0 ? this.vmSwitchT / 0.28 : 0;
+    const sprintK = this.vmSprintK;
+
+    if (armR) {
+      // 오른손은 그립에 붙어있고 미세하게만 흔들린다
+      armR.group.rotation.x = (armR.baseRotX || 0.2) + breathe * 0.6 + bobC * 0.5;
+      armR.group.rotation.z = (armR.baseRotZ || 0) + bobS * 0.4;
+      if (hr) {
+        // 사격 순간 그립 손가락이 살짝 움찔 (반동은 0 유지)
+        const squeeze = this.vmSqueeze || 0;
+        hr.userData.setCurl(1 - squeeze * 0.12);
+        hr.position.y = breathe * 0.4;
+      }
+    }
+    if (armL) {
+      // 왼손: 기본은 핸드가드, 재장전/교체/스프린트 시 떨어진다
+      const reloadDip = rl > 0 ? Math.sin(rl * Math.PI) : 0;
+      const switchDrop = sw > 0 ? Math.sin(sw * Math.PI) : 0;
+      const drop = Math.max(reloadDip, switchDrop * 0.8, sprintK * 0.9);
+      armL.group.position.y = (armL.baseY || 0) - drop * 0.16;
+      armL.group.position.z = (armL.baseZ || 0) + drop * 0.05;
+      armL.group.rotation.x = (armL.baseRotX || 0.16) + drop * 0.85 + breathe * 0.5;
+      armL.group.rotation.z = (armL.baseRotZ || 0) - drop * 0.35 - bobS * 0.5;
+      if (hl) {
+        // 재장전 중엔 손가락을 펴서 탄창을 잡는 느낌
+        const open = reloadDip * 0.55;
+        hl.userData.setCurl(0.85 - open);
+        hl.userData.setSpread(1.15 + open * 0.8);
+        hl.rotation.x = (hl.baseRotX || -0.5) + drop * 0.5;
+        hl.rotation.z = (hl.baseRotZ || -0.25) + bobS * 0.3;
+      }
+    }
+    if (this.vmSqueeze > 0) this.vmSqueeze = Math.max(0, this.vmSqueeze - dt * 6);
     // 섬광 감쇠 + 랜덤 회전 + 게틀링 총열 회전
     if (this.vmFlashT > 0) {
       this.vmFlashT -= dt;
@@ -1713,8 +1882,9 @@ export class FPSGame {
     if (a.mag <= 0) { this.reload(); return; }
     this.lastShot = now; if (!w.melee) a.mag--; // 사격해도 슬라이드는 유지
     if (w.rocket) { this.fireRocket(w); return; }
-    // 발사 이펙트 (반동 없음: 에임 고정)
+    // 발사 이펙트 (반동 없음: 에임 고정) — 대신 그립 손가락만 살짝 움찔
     this.vmFlashT = 0.05;
+    this.vmSqueeze = 1;
     Sfx.shoot(w.id);
     // 타인 화면에 총구섬광 중계 (스로틀 80ms)
     if (now - this.lastShootEmit > 80) { this.lastShootEmit = now; this.socket.emit('player:shoot'); }
