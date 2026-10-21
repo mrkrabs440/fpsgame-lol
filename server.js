@@ -166,12 +166,6 @@ function checkKillStats(p, headshot) {
   if (s.kills >= 20 && s.hs / s.kills > 0.65) flagCheat(p, 'hsRatio', `헤드샷 ${Math.round(s.hs / s.kills * 100)}%`);
 }
 // OP총: 지정 닉네임만 / 미친말총: 지정 닉네임 + 가입 시 ID / 관리자 갑옷: 지정 ID
-// ---------- 맘마버거 전용 강화 AK47 (한방) ----------
-// 등록 닉네임이 '맘마버거'인 계정만 보유. AK47 인덱스 1.
-// 외형·이름표·킬피드는 일반 AK47와 완전히 동일 (들키지 않음)
-const AK_SPECIAL_NICK = '맘마버거';
-const AK_IDX = 1;
-
 // ---------- 관리자 (개발자 통계 탭 · 치트 콘솔 권한) ----------
 const ADMIN_USERS = new Set(['Tlqkfsusemfdk69']);
 function isAdmin(username) { return ADMIN_USERS.has(String(username || '').trim()); }
@@ -348,8 +342,6 @@ app.patch('/api/nickname', authMiddleware, (req, res) => {
   const me = users.find(u => u.id === req.user.id);
   if (!me) return res.status(401).json({ error: '세션 만료' });
   if (users.find(u => u.nickname === nn && u.id !== me.id)) return res.status(409).json({ error: '이미 사용 중인 닉네임입니다.' });
-  // '맘마버거'는 원래 그 닉네임으로 등록한 계정만 사용 가능 (강화 AK47 탈취 방지)
-  if (nn === AK_SPECIAL_NICK && me.nickname !== AK_SPECIAL_NICK) return res.status(403).json({ error: '전용 닉네임은 사용할 수 없습니다.' });
   if (me.nickname === nn) return res.json({ ok: true, nickname: nn, message: '같은 닉네임입니다.' });
   const old = me.nickname;
   me.nickname = nn;
@@ -362,7 +354,6 @@ app.patch('/api/nickname', authMiddleware, (req, res) => {
     if (pl.userId !== me.id) continue;
     pl.nickname = nn;
     pl.admin = isAdmin(me.username);
-    pl.akOk = !!pl.akOk && nn === AK_SPECIAL_NICK; // 강화 AK47 권한 유지 조건
     pl.wi = clampWi(pl.wi, pl);
     if (pl.roomId && rooms.get(pl.roomId)) touched.add(pl.roomId);
   }
@@ -701,7 +692,7 @@ io.on('connection', (socket) => {
     const user = users.find(u => u.id === uid);
     if (!user) return socket.emit('auth:fail');
     if (checkSeasonRollover(user)) saveUsers(users);
-    players.set(socket.id, { socketId: socket.id, userId: user.id, nickname: user.nickname, admin: isAdmin(user.username), akOk: user.nickname === AK_SPECIAL_NICK, loadout: [...DEFAULT_LO], roomId: null, team: null, hp: 100, alive: true, kills: 0, deaths: 0, money: 800, pos: { x: 0, y: 1.7, z: 0 }, yaw: 0 });
+    players.set(socket.id, { socketId: socket.id, userId: user.id, nickname: user.nickname, admin: isAdmin(user.username), loadout: [...DEFAULT_LO], roomId: null, team: null, hp: 100, alive: true, kills: 0, deaths: 0, money: 800, pos: { x: 0, y: 1.7, z: 0 }, yaw: 0 });
     socket.emit('auth:ok', { nickname: user.nickname });
     socket.emit('lobby:update', { rooms: [...rooms.values()].map(publicRoom) });
   });
@@ -875,11 +866,6 @@ io.on('connection', (socket) => {
       return;
     }
     if (targetEntry.team === shooter.team) { flagCheat(shooter, 'teamKill', String(target).slice(0, 16)); return; } // 아군 오사 방지
-    // 강화 AK47 (맘마버거 전용): 한방 처형 — 서버가 데미지 강제 (클라 조작 무효)
-    if (shooter.akOk && shooter.wi === AK_IDX && String(weapon || '').startsWith('AK47')) {
-      strike(room, shooter, targetEntry, 999, 'AK47', false);
-      return;
-    }
     strike(room, shooter, targetEntry, damage, weapon, !!stun);
   });
 

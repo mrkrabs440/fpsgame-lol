@@ -1,1 +1,63 @@
-[]
+[
+  {
+    "id": "cf4dcc3d",
+    "name": "aktest",
+    "mode": "conquest",
+    "map": "desert_storm",
+    "maxPlayers": 10,
+    "host": "희생dv55",
+    "hostId": "1f75e379-9190-4b11-87d3-0433332269f9",
+    "ranked": false,
+    "order": [],
+    "teams": {},
+    "status": "waiting",
+    "createdAt": 1792555707337,
+    "state": {
+      "tickets": {
+        "alpha": 150,
+        "bravo": 150
+      },
+      "flags": {
+        "A": "neutral",
+        "B": "neutral",
+        "C": "neutral"
+      },
+      "progress": {
+        "A": 0,
+        "B": 0,
+        "C": 0
+      }
+    },
+    "emptySince": null
+  },
+  {
+    "id": "0e691804",
+    "name": "aktest",
+    "mode": "conquest",
+    "map": "desert_storm",
+    "maxPlayers": 10,
+    "host": "희생fs50",
+    "hostId": "d29f111f-9d86-4e15-bc1b-587e01f16fe1",
+    "ranked": false,
+    "order": [],
+    "teams": {},
+    "status": "waiting",
+    "createdAt": 1792555797203,
+    "state": {
+      "tickets": {
+        "alpha": 150,
+        "bravo": 150
+      },
+      "flags": {
+        "A": "neutral",
+        "B": "neutral",
+        "C": "neutral"
+      },
+      "progress": {
+        "A": 0,
+        "B": 0,
+        "C": 0
+      }
+    }
+  }
+]

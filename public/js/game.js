@@ -81,7 +81,6 @@ export class FPSGame {
     this.canvas = canvas; this.socket = socket;
     this.room = room; this.team = team; this.nick = nick;
     this.modalOpen = false;   // 무기선택 모달 열림 여부 (참가 오버레이 제어)
-    this.akSpecial = (nick === '맘마버거'); // 강화 AK47 보유 (봇 대상 한방 처리용, 비공개)
     this.loadout = [...DEFAULT_LOADOUT]; // 라운드 로드아웃 [원거리, 근접]
     this.loadoutLocked = false;         // 라운드 시작 시 선택 확정
     this.serverState = state;
@@ -1453,7 +1452,7 @@ export class FPSGame {
       if (d.victim === this.nick) { this.deaths++; this.onDeath(true, { nickname: d.killer, weapon: d.weapon }); Sfx.lose(); }
       if (d.killer === this.nick && d.victim !== this.nick) {
         this.kills++; this.money += 300; this.updateHUD(); Sfx.kill();
-        if (this.akSpecial && String(d.weapon || '').startsWith('AK47')) this.feed('🔫 강화 AK47 한방!');
+  
         this.onMyKill();
         this.showKillBanner(d.victim, d.weapon);
       }
@@ -1987,8 +1986,7 @@ export class FPSGame {
       const r = this.remotes.get(best);
       if (r.isBot) { // 봇 데미지 로컬 처리
         if (w.stun) r.slowT = 2; // 감전 슬로우
-        const akOne = this.akSpecial && w.id === 'AK47' && !w.stun; // 강화 AK47 한방
-        this.damageBot(best, r, akOne ? 999 : w.dmg * dmgMul, `${this.nick} [${w.id}${w.stun ? '⚡' : ''}]`, bestHead && !w.stun);
+        this.damageBot(best, r, w.dmg * dmgMul, `${this.nick} [${w.id}${w.stun ? '⚡' : ''}]`, bestHead && !w.stun);
       } else {
         this.socket.emit('player:hit', { target: best, damage: w.dmg * dmgMul, weapon: (bestHead && !w.stun) ? w.id + '(헤드샷)' : w.id, stun: !!w.stun });
       }
