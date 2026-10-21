@@ -192,6 +192,16 @@ function clampWi(wi, p) {
 }
 
 function getTier(rating) {
+  if (rating >= 4500) return '오메가';
+  if (rating >= 4300) return '유니콘';
+  if (rating >= 4100) return '전설';
+  if (rating >= 3900) return '신화';
+  if (rating >= 3700) return '챔피언';
+  if (rating >= 3500) return '히어로';
+  if (rating >= 3300) return '타이탄';
+  if (rating >= 3100) return '무자';
+  if (rating >= 2900) return '무신';
+  if (rating >= 2700) return '초신';
   if (rating >= 2500) return '신';
   if (rating >= 2200) return '초월자';
   if (rating >= 2000) return '그랜드마스터';
@@ -206,8 +216,16 @@ function getTier(rating) {
 }
 
 // ---------- 시즌제 (현실 1달 = 1시즌, 종료 시 최대 2티어까지만 강등) ----------
-const TIER_ORDER = ['인간말종쓰레기버러지', '음식물쓰레기', '쓰레기', '실버', '골드', '플래티넘', '다이아', '마스터', '그랜드마스터', '초월자', '신'];
-const TIER_FLOORS = [0, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2500];
+const TIER_ORDER = [
+  '인간말종쓰레기버러지', '음식물쓰레기', '쓰레기', '실버', '골드', '플래티넘',
+  '다이아', '마스터', '그랜드마스터', '초월자', '신',
+  '초신', '무신', '무자', '타이탄', '히어로', '챔피언', '신화', '전설', '유니콘', '오메가',
+];
+// 각 티어의 최소 점수(강등 시 이 값 아래로 못 내려감, 최대 2티어 하한선 계산에 사용)
+const TIER_FLOORS = [
+  0, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2500,
+  2700, 2900, 3100, 3300, 3500, 3700, 3900, 4100, 4300, 4500,
+];
 function seasonId(d = new Date()) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
 function checkSeasonRollover(u) {
   const cur = seasonId();
