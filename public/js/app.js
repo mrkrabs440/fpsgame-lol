@@ -73,7 +73,7 @@ async function enterLobby() {
   authed = false;
   if (socket.connected) socket.emit('auth', { token });
   else socket.once('connect', () => socket.emit('auth', { token }));
-  loadModes(); loadRooms(); loadMe(); loadRankings();
+  loadModes(); loadRooms(); loadMe(); loadRankings(); loadTierTable();
   initDevStats();
 }
 
@@ -132,6 +132,59 @@ async function loadMe() {
   } catch (e) {}
 }
 
+// 티어 승급표 (21단계) 로드 + 렌더
+async function loadTierTable() {
+  const box = document.getElementById('tier-table');
+  const cur = document.getElementById('tier-current');
+  const next = document.getElementById('tier-next');
+  const fill = document.getElementById('tier-fill');
+  if (!box) return;
+  try {
+    const r = await fetch('/api/season');
+    const j = await r.json();
+    if (!j.ok || !j.tierInfo) return;
+    let my = { rating: 1000, tier: '실버' };
+    try {
+      const mr = await fetch('/api/me', { headers: { Authorization: 'Bearer ' + token } });
+      const mj = await mr.json();
+      if (mj.ok && mj.user) my = mj.user;
+    } catch (e) { /* 비로그인 */ }
+
+    const info = j.tierInfo;
+    const idx = info.findIndex((t) => t.tier === my.tier);
+    if (cur) {
+      cur.textContent = `${my.tier} · ${my.rating}점`;
+      cur.className = 'tier-current' + (idx >= info.length - 3 ? ' top' : '');
+    }
+    // 다음 티어까지 진행도
+    const curInfo = idx >= 0 ? info[idx] : null;
+    if (curInfo) {
+      const span = curInfo.next ? curInfo.next - curInfo.min : 1;
+      const got = Math.max(0, Math.min(span, my.rating - curInfo.min));
+      const pct = curInfo.next ? Math.round((got / span) * 100) : 100;
+      if (fill) fill.style.width = pct + '%';
+      if (next) {
+        next.textContent = curInfo.next
+          ? `다음 티어 ${info[idx + 1].tier} 까지 ${Math.max(0, curInfo.next - my.rating)}점 남음 (${pct}%)`
+          : '최고 티어 달성! 🏆';
+      }
+    }
+    // 표 (높은 티어부터)
+    const rows = [...info].reverse().map((t) => {
+      const mine = t.tier === my.tier;
+      const reached = my.rating >= t.min;
+      return `<div class="tier-row${mine ? ' mine' : ''}${reached ? ' reached' : ''}">
+        <span class="tier-name">${t.tier}</span>
+        <span class="tier-min">${t.min}점${t.next ? ` ~${t.next - 1}` : '+'}</span>
+        ${mine ? '<span class="tier-mark">← 나</span>' : ''}
+      </div>`;
+    }).join('');
+    box.innerHTML = rows;
+  } catch (e) {
+    box.innerHTML = '<p style="color:#7d8ea0">티어 정보를 불러올 수 없습니다.</p>';
+  }
+}
+
 async function loadRankings() {
   try {
     const r = await fetch('/api/rankings'); const j = await r.json();
@@ -161,7 +214,7 @@ function renderRooms(rooms) {
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 $('btn-refresh').onclick = () => { loadRooms(); loadRankings(); loadMe(); };
-$('btn-rank-refresh').onclick = () => loadRankings();
+$('btn-rank-refresh').onclick = () => { loadRankings(); loadTierTable(); };
 $('btn-create').onclick = () => $('create-panel').classList.toggle('hidden');
 $('btn-quick').onclick = async () => {
   const r = await fetch('/api/competitive/quick', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ mode: 'defuse' }) });

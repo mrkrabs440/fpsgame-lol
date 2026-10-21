@@ -226,6 +226,13 @@ const TIER_FLOORS = [
   0, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2500,
   2700, 2900, 3100, 3300, 3500, 3700, 3900, 4100, 4300, 4500,
 ];
+// 티어별 진입 점수 정보(로비 승급표용)
+const TIER_INFO = TIER_ORDER.map((tier, i) => ({
+  tier,
+  min: TIER_FLOORS[i],
+  next: TIER_FLOORS[i + 1] ?? null,
+}));
+
 function seasonId(d = new Date()) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
 function checkSeasonRollover(u) {
   const cur = seasonId();
@@ -414,7 +421,7 @@ app.get('/api/season', (req, res) => {
   const now = new Date();
   const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   const daysLeft = Math.ceil((end - now) / 86400000);
-  res.json({ ok: true, season: seasonId(now), daysLeft, tiers: TIER_ORDER });
+  res.json({ ok: true, season: seasonId(now), daysLeft, tiers: TIER_ORDER, tierInfo: TIER_INFO });
 });
 app.get('/api/rooms', (req, res) => res.json({ ok: true, rooms: [...rooms.values()].map(publicRoom) }));
 
