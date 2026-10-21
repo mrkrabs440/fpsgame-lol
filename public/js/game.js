@@ -587,6 +587,11 @@ export class FPSGame {
     this.camera.add(this.flash);
     // 뷰모델 애니 상태
     this.vmBob = 0; this.vmFlashT = 0;
+    // 손/무기 움직임 상태
+    this.vmSwayX = 0; this.vmSwayY = 0;   // 에임 스웨이(무기가 마우스를 늦게 따라옴)
+    this.vmStrafe = 0;                    // 좌우 이동 틸트
+    this.vmAir = 0;                       // 공중 여부
+    this.vmIdleFidget = 0;                // 유휴 손가락 미세 움직임 위상
     this.vmAdsK = 0; this.vmReloadStart = -1; this.vmReloadDur = 1500;
     this.vmSwitchT = 0; this.lastShootEmit = 0;
     this.updateVmFlashPos();
@@ -885,6 +890,9 @@ export class FPSGame {
       const sens = this.aiming ? (WEAPONS[this.wi].zoom ? 0.35 : 0.6) : 1; // 조준 시 감도 감소
       this.yaw -= e.movementX * 0.0022 * sens;
       this.pitch -= e.movementY * 0.0022 * sens;
+      // 무기가 마우스를 늦게 따라오는 스웨이 입력
+      this.vmSwayX = Math.max(-0.06, Math.min(0.06, this.vmSwayX - e.movementX * 0.00035));
+      this.vmSwayY = Math.max(-0.05, Math.min(0.05, this.vmSwayY + e.movementY * 0.0003));
       this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch));
     };
     addEventListener('mousemove', this.onMouseMove);
@@ -1114,14 +1122,26 @@ export class FPSGame {
     // 이모트 상태 (L = 엘을 가져가)
     if (this.emoteT > 0) { this.emoteT = Math.max(0, this.emoteT - dt); if (this.emoteT === 0) this.emote = ''; }
     const emoting = this.emote === 'L' && this.emoteT > 0 && this.alive;
+    // --- 에임 스웨이(무기가 마우스를 늦게 따라온다) ---
+    this.vmSwayX += (0 - this.vmSwayX) * Math.min(1, dt * 6.5);
+    this.vmSwayY += (0 - this.vmSwayY) * Math.min(1, dt * 6.5);
+    // --- 스트레이프 틸트(좌우 이동 시 총이 기울어진다) ---
+    const strafeIn = (this.keys.KeyD ? 1 : 0) - (this.keys.KeyA ? 1 : 0);
+    this.vmStrafe += (strafeIn - this.vmStrafe) * Math.min(1, dt * 7);
+    // --- 공중/착지 ---
+    this.vmAir += ((this.grounded ? 0 : 1) - this.vmAir) * Math.min(1, dt * 9);
+    // --- 재장전 진행도(0~1) ---
+    const rlAll = (this.reloading && this.vmReloadStart > 0) ? Math.min(1, (now - this.vmReloadStart) / this.vmReloadDur) : 0;
     // 위치: 힙↔조준 보간 + 밥 + 딥
     this.vmRig.position.lerpVectors(this.vmHipPos, this.vmAdsPos, k);
-    this.vmRig.position.x += bx - sk * 0.05;
-    this.vmRig.position.y += by - relDip - swDip - landDip - throwDip - this.vmSprintK * 0.05 - sk * 0.06;
-    this.vmRig.position.z += sk * 0.04;
-    this.vmRig.rotation.x = -relTilt - (this.vmSwitchT > 0 ? 0.35 * Math.sin((this.vmSwitchT / 0.28) * Math.PI) : 0) - this.vmSprintK * 0.25 + sk * 0.42;
-    this.vmRig.rotation.y = swipeK * 0.6 - sk * 0.18;
-    this.vmRig.rotation.z = Math.sin(this.vmBob * 0.5) * 0.008 + sk * 0.2;
+    this.vmRig.position.x += bx - sk * 0.05 + this.vmStrafe * 0.022;
+    this.vmRig.position.y += by - relDip - swDip - landDip - throwDip - this.vmSprintK * 0.05 - sk * 0.06
+      - this.vmAir * 0.05 + landDip * 0.6;
+    this.vmRig.position.z += sk * 0.04 + this.vmSwayX * 0.35;
+    this.vmRig.rotation.x = -relTilt - (this.vmSwitchT > 0 ? 0.35 * Math.sin((this.vmSwitchT / 0.28) * Math.PI) : 0)
+      - this.vmSprintK * 0.25 + sk * 0.42 + this.vmSwayY * 0.9 + this.vmAir * 0.16;
+    this.vmRig.rotation.y = swipeK * 0.6 - sk * 0.18 + this.vmSwayX * 1.5;
+    this.vmRig.rotation.z = Math.sin(this.vmBob * 0.5) * 0.008 + sk * 0.2 - this.vmStrafe * 0.075 + this.vmSwayX * 0.5;
     // 무기 검사(Inspect): 총을 돌려 단면 보여주기
     const gun = this.vmGuns[this.wi];
     if (this.inspectT > 0) this.inspectT = Math.max(0, this.inspectT - dt);
@@ -1184,12 +1204,18 @@ export class FPSGame {
 
     if (armR) {
       // 오른손은 그립에 붙어있고 미세하게만 흔들린다
+      // 유휴 상태에서 손가락이 살짝 움직인다(사지 않는 사람처럼)
+      this.vmIdleFidget += dt * (sprintK > 0.4 ? 0.4 : 1.15);
+      const fidget = (1 - Math.min(1, this.moveSpeed / 2.2)) * (sprintK > 0.4 ? 0 : 1);
+      const curlIdle = 1 - Math.sin(this.vmIdleFidget * 0.9) * 0.05 * fidget;
       if (hr) {
         const squeeze = this.vmSqueeze || 0;
-        hr.userData.setCurl(1 - squeeze * 0.12);
-        hr.position.y = breathe * 0.4;
+        hr.userData.setCurl(curlIdle - squeeze * 0.12);
+        hr.position.y = breathe * 0.4 - this.vmStrafe * 0.012;
+        hr.position.x = (armR.hand.position.x || 0) + this.vmStrafe * 0.012;
         hr.rotation.x = (armR.baseRotX || -1.05) + breathe * 0.5 + bobC * 0.3;
-        hr.rotation.z = (armR.baseRotZ || 0.08) + bobS * 0.35;
+        hr.rotation.z = (armR.baseRotZ || 0.08) + bobS * 0.35 - this.vmStrafe * 0.09;
+        hr.rotation.y = (armR.baseRotY || -0.15) + Math.sin(this.vmIdleFidget * 0.55) * 0.012 * fidget;
       }
       this.updateForearm(armR);
     }
@@ -1198,14 +1224,19 @@ export class FPSGame {
       const reloadDip = rl > 0 ? Math.sin(rl * Math.PI) : 0;
       const switchDrop = sw > 0 ? Math.sin(sw * Math.PI) : 0;
       const drop = Math.max(reloadDip, switchDrop * 0.8, sprintK * 0.9);
+      // 재장전 3단계: ①탄창탈착 ②새탄창삽입 ③충격핸들당기기
+      const magOut = rlAll > 0 && rlAll < 0.45 ? Math.sin((rlAll / 0.45) * Math.PI) : 0;
+      const magIn = rlAll >= 0.45 && rlAll < 0.75 ? Math.sin(((rlAll - 0.45) / 0.3) * Math.PI) : 0;
+      const charge = rlAll >= 0.75 ? Math.sin(((rlAll - 0.75) / 0.25) * Math.PI) : 0;
       if (hl) {
         // 재장전 중엔 손가락을 펴서 탄창을 잡는 느낌
         const open = reloadDip * 0.55;
         hl.userData.setCurl(0.85 - open);
         hl.userData.setSpread(1.15 + open * 0.8);
-        hl.position.y = (armL.baseY || 0) - drop * 0.16;
-        hl.position.z = (armL.baseZ || 0) + drop * 0.05;
-        hl.rotation.x = (armL.baseRotX || -0.5) + drop * 0.85 + breathe * 0.5;
+        // 탄창 쪽으로 내려갔다가 돌아오는 실제 경로
+        hl.position.y = (armL.baseY || 0) - drop * 0.16 - magOut * 0.06 + magIn * 0.03;
+        hl.position.z = (armL.baseZ || 0) + drop * 0.05 - magOut * 0.05 + magIn * 0.04 - charge * 0.09;
+        hl.rotation.x = (armL.baseRotX || -0.5) + drop * 0.85 + breathe * 0.5 - magOut * 0.5 + magIn * 0.35 - charge * 0.25;
         hl.rotation.z = (armL.baseRotZ || -0.25) - drop * 0.35 - bobS * 0.5;
       }
       this.updateForearm(armL);
